@@ -1,13 +1,27 @@
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Path, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 import json
 from pydantic import BaseModel, Field
-from modules.db_reader import query_df
+from .modules.db_reader import query_df
 from .audio_utils import denoise_audio, load_audio_from_uploadfile, save_audio_to_bytesio
 import io
 
 # object creation of FastAPI
 app = FastAPI(title="Audio Processing API", description="API for denoising audio files.")
+
+# CORS Middleware Configuration  <-- ADD THIS ENTIRE BLOCK
+origins = [
+    "http://localhost:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -119,6 +133,6 @@ def add_job(emp: Employee):
 
 
 
-query = "select * From applications"
-data = query_df(query)
-print(type(data))
+# query = "select * From applications"
+# data = query_df(query)
+# print(type(data))

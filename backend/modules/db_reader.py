@@ -1,5 +1,5 @@
 from google.cloud.sql.connector import Connector
-import mysql.connector
+import pymysql
 import pandas as pd
 from .constants import *
 import sys
@@ -14,7 +14,7 @@ connector = Connector()
 
 
 # Function to get a database connection
-def getconn() -> mysql.connector.MySQLConnection:
+def getconn() -> pymysql.connections.Connection:
     conn = connector.connect(
         instance_connection_name,
         "pymysql",  # Specify the MySQL dialect
@@ -28,18 +28,16 @@ def getconn() -> mysql.connector.MySQLConnection:
 def query_df(query, values=None):
     try:
         with getconn() as mydb:
-            cursor = mydb.cursor()
-            cursor.execute(query, values)
-            columns = [desc[0] for desc in cursor.description]  # Get column names
-            data = cursor.fetchall()
-
-        # Convert to DataFrame
-        df = pd.DataFrame(data, columns=columns)
-        return data
-    except mysql.connector.Error as err:
+            # The cursor from a pymysql connection does not have a native `description`
+            # attribute in the same way, so we read directly into pandas.
+            df = pd.read_sql_query(query, mydb, params=values)
+            
+        # To match the original function's return type, we convert the DataFrame
+        # to a list of lists/tuples.
+        return df.to_records(index=False).tolist()
+    except Exception as err:
         print(f"Error: {err}")
         return None
-
 
 # query = "select * From applications"
 # data = query_df(query)
