@@ -1,26 +1,61 @@
-from fastapi import FastAPI, Path, HTTPException
+from fastapi import FastAPI, Path, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 import json
 from pydantic import BaseModel, Field
 from modules.db_reader import query_df
-import json
+from .audio_utils import denoise_audio, load_audio_from_uploadfile, save_audio_to_bytesio
+import io
+
 # object creation of FastAPI
-app = FastAPI()
+app = FastAPI(title="Audio Processing API", description="API for denoising audio files.")
 
 
 @app.get("/")
 def index():
-    return {"Hello": "World"}
+    return {"message": "Welcome to the Audio Processing API. Use the /denoise/ endpoint to process audio."}
 
 
-@app.get("/emp/{emp_id}")
+@app.post("/denoise/", tags=["Audio Processing"])
+async def denoise_audio_endpoint(file: UploadFile = File(..., description="Audio file to be denoised (wav, mp3, flac)")):
+    """
+    Accepts an audio file, denoises it, and returns the processed audio file.
+    """
+    audio_data, sample_rate, error = await load_audio_from_uploadfile(file)
+
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    if audio_data is None or sample_rate is None: # Should be caught by error but as a safeguard
+        raise HTTPException(status_code=500, detail="Failed to load audio data.")
+
+    denoised_data = denoise_audio(audio_data, sample_rate)
+
+    output_format = file.filename.split(".")[-1].lower() if file.filename else "wav"
+    if output_format not in ["wav", "flac"]: # mp3 encoding requires ffmpeg or similar, stick to wav/flac for now
+        output_format = "wav"
+
+    audio_buffer = save_audio_to_bytesio(denoised_data, sample_rate, format=output_format)
+
+    return StreamingResponse(audio_buffer, media_type=f"audio/{output_format}", headers={
+        "Content-Disposition": f"attachment; filename=denoised_{file.filename}"
+    })
+
+
+# Previous endpoints for demonstration (can be removed or kept based on project needs)
+@app.get("/emp/{emp_id}", tags=["Demo Employee Data"])
 def emp_id(emp_id: int):
-    with open('temp/emp_data.json', 'r') as f:
-        data = json.load(f)
-    print(data)
     try:
+        with open('../temp/emp_data.json', 'r') as f: # Adjusted path
+            data = json.load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Employee data file not found.")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Error decoding employee data.")
+
+    if 'jobs' in data and isinstance(data['jobs'], list) and 0 <= emp_id -1 < len(data['jobs']):
         return data['jobs'][emp_id - 1]
-    except KeyError:
-        return KeyError
+    else:
+        raise HTTPException(status_code=404, detail=f"Employee with id {emp_id} not found.")
 
 
 @app.get("/get-by-id")
