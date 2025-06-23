@@ -7,7 +7,7 @@ import io
 
 SUPPORTED_AUDIO_FORMATS = ["wav", "mp3", "flac"]
 
-def denoise_audio(audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
+def denoise_audio(audio_data: np.ndarray, sample_rate: int, strength: float = 0.5) -> np.ndarray: # Default strength added
     """
     Denoises an audio signal using spectral gating.
 
@@ -20,7 +20,13 @@ def denoise_audio(audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
     """
     # Perform noise reduction
     reduced_noise = nr.reduce_noise(y=audio_data, sr=sample_rate)
-    return reduced_noise
+    # The prop_decrease parameter controls how much noise reduction is applied.
+    # It's a value between 0 and 1. Higher values mean more noise reduction.
+    # We can map our strength parameter (e.g., 0-100 or 0.0-1.0) to this.
+    # For now, let's assume strength is 0.0 to 1.0, and use it directly for prop_decrease.
+    # A lower prop_decrease means less aggressive noise reduction.
+    # Default for noisereduce is 1.0
+    return nr.reduce_noise(y=audio_data, sr=sample_rate, prop_decrease=strength)
 
 async def load_audio_from_uploadfile(file: UploadFile) -> tuple[np.ndarray | None, int | None, str | None]:
     """

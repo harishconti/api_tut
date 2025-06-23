@@ -15,6 +15,26 @@ origins = [
     "http://localhost:3000",
 ]
 
+# app.add_middleware( # This block is duplicated, removing one instance
+#     CORSMiddleware,
+#     allow_origins=origins,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+
+from fastapi import Form # Added Form
+from .audio_utils import denoise_audio, load_audio_from_uploadfile, save_audio_to_bytesio, SUPPORTED_AUDIO_FORMATS # Added SUPPORTED_AUDIO_FORMATS
+
+# object creation of FastAPI
+app = FastAPI(title="Audio Processing API", description="API for denoising and processing audio files.") # Updated description
+
+# CORS Middleware Configuration
+origins = [
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -26,13 +46,17 @@ app.add_middleware(
 
 @app.get("/")
 def index():
-    return {"message": "Welcome to the Audio Processing API. Use the /denoise/ endpoint to process audio."}
+    return {"message": "Welcome to the Audio Processing API. Use the /process/ endpoint to process audio."} # Updated message
 
 
-@app.post("/denoise/", tags=["Audio Processing"])
-async def denoise_audio_endpoint(file: UploadFile = File(..., description="Audio file to be denoised (wav, mp3, flac)")):
+@app.post("/process/", tags=["Audio Processing"]) # Renamed endpoint for more general processing
+async def process_audio_endpoint(
+    file: UploadFile = File(..., description="Audio file to be processed (wav, mp3, flac)"),
+    denoise_strength: float = Form(0.5, ge=0.0, le=1.0, description="Denoising strength (0.0 to 1.0)"), # Added denoise_strength
+    output_format: str = Form("wav", description=f"Desired output format. Supported: {', '.join(SUPPORTED_AUDIO_FORMATS)}") # Added output_format
+):
     """
-    Accepts an audio file, denoises it, and returns the processed audio file.
+    Accepts an audio file, applies selected processing (denoising), and returns the processed audio file in the desired format.
     """
     audio_data, sample_rate, error = await load_audio_from_uploadfile(file)
 
@@ -42,16 +66,25 @@ async def denoise_audio_endpoint(file: UploadFile = File(..., description="Audio
     if audio_data is None or sample_rate is None: # Should be caught by error but as a safeguard
         raise HTTPException(status_code=500, detail="Failed to load audio data.")
 
-    denoised_data = denoise_audio(audio_data, sample_rate)
+    # Denoising
+    processed_data = denoise_audio(audio_data, sample_rate, strength=denoise_strength)
 
-    output_format = file.filename.split(".")[-1].lower() if file.filename else "wav"
-    if output_format not in ["wav", "flac"]: # mp3 encoding requires ffmpeg or similar, stick to wav/flac for now
-        output_format = "wav"
+    # Validate output_format
+    requested_format = output_format.lower()
+    if requested_format not in SUPPORTED_AUDIO_FORMATS:
+        raise HTTPException(status_code=400, detail=f"Unsupported output format: {requested_format}. Supported formats are: {', '.join(SUPPORTED_AUDIO_FORMATS)}")
 
-    audio_buffer = save_audio_to_bytesio(denoised_data, sample_rate, format=output_format)
+    # Ensure filename for download is sensible
+    original_filename = "audio"
+    if file.filename:
+        original_filename = file.filename.rsplit('.', 1)[0] # Get filename without extension
 
-    return StreamingResponse(audio_buffer, media_type=f"audio/{output_format}", headers={
-        "Content-Disposition": f"attachment; filename=denoised_{file.filename}"
+    output_filename = f"processed_{original_filename}.{requested_format}"
+
+    audio_buffer = save_audio_to_bytesio(processed_data, sample_rate, format=requested_format)
+
+    return StreamingResponse(audio_buffer, media_type=f"audio/{requested_format}", headers={
+        "Content-Disposition": f"attachment; filename={output_filename}"
     })
 
 
