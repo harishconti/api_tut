@@ -234,3 +234,151 @@ def test_process_audio_all_supported_output_formats(supported_format):
 # If `backend.fastapi_main` cannot be found, it's likely a PYTHONPATH issue.
 # Consider structuring your project with a setup.py or pyproject.toml to make it installable
 # or adjust PYTHONPATH: `export PYTHONPATH=.` from the root before running pytest.
+
+import json # Added for new tests
+import base64 # Added for decoding audio in waveform tests
+
+# --- Tests for new features: EQ, Normalization, Waveform ---
+
+def test_process_audio_with_eq(default_wav_upload):
+    eq_bands = [{"freq": 1000, "gain": 3, "q": 1.0}]
+    eq_bands_json = json.dumps(eq_bands)
+    response = client.post(
+        "/process/",
+        files=default_wav_upload,
+        data={"eq_bands_json": eq_bands_json, "output_format": "wav"}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    # Further validation could involve checking if the audio content was actually modified.
+
+def test_process_audio_with_invalid_eq_json(default_wav_upload):
+    invalid_eq_json = '[{"freq": 1000, "gain": "not_a_number", "q": 1.0}]' # gain should be number
+    # Actually, the Pydantic model on backend might not catch this if it's just string -> json.loads
+    # The backend error would likely be from apply_equalizer if types are wrong after json.loads
+    # Let's test malformed JSON string first.
+    malformed_eq_json = '[{"freq": 1000, "gain": 3, "q": 1.0]' # Missing closing bracket
+    response = client.post(
+        "/process/",
+        files=default_wav_upload,
+        data={"eq_bands_json": malformed_eq_json, "output_format": "wav"}
+    )
+    assert response.status_code == 400 # Expecting bad request due to JSON parsing
+    json_response = response.json()
+    assert "detail" in json_response
+    assert "Invalid JSON format for EQ bands" in json_response["detail"]
+
+
+def test_process_audio_with_normalization(default_wav_upload):
+    response = client.post(
+        "/process/",
+        files=default_wav_upload,
+        data={"apply_normalization": "True", "output_format": "wav"} # Form data sends strings
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    # As with EQ, validating actual normalization effect is complex here.
+
+def test_process_audio_request_waveform(default_wav_upload):
+    response = client.post(
+        "/process/",
+        files=default_wav_upload,
+        data={"request_waveform": "True", "output_format": "wav"}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+    json_response = response.json()
+
+    assert "message" in json_response
+    assert "audio_filename" in json_response
+    assert "audio_format" in json_response
+    assert "audio_b64" in json_response
+    assert "original_waveform" in json_response
+    assert "processed_waveform" in json_response
+
+    assert isinstance(json_response["audio_b64"], str)
+    assert len(json_response["audio_b64"]) > 0
+
+    assert isinstance(json_response["original_waveform"], list)
+    assert len(json_response["original_waveform"]) > 0 # Default 500 points
+    assert all(isinstance(x, (float, int)) for x in json_response["original_waveform"])
+
+    assert isinstance(json_response["processed_waveform"], list)
+    assert len(json_response["processed_waveform"]) > 0
+    assert all(isinstance(x, (float, int)) for x in json_response["processed_waveform"])
+
+    assert json_response["audio_filename"] == "processed_test.wav"
+    assert json_response["audio_format"] == "wav"
+
+    # Try to decode base64 audio
+    try:
+        audio_content = base64.b64decode(json_response["audio_b64"])
+        with io.BytesIO(audio_content) as audio_buffer:
+            data, sr = sf.read(audio_buffer)
+            assert isinstance(data, np.ndarray)
+            assert sr == 16000 # From default_wav_upload
+    except Exception as e:
+        pytest.fail(f"Failed to decode or read base64 audio from JSON response: {e}")
+
+
+def test_process_audio_all_features_waveform_request(default_wav_upload):
+    eq_bands = [{"freq": 100, "gain": -6, "q": 0.7}, {"freq": 2000, "gain": 2, "q": 1.5}]
+    eq_bands_json = json.dumps(eq_bands)
+
+    response = client.post(
+        "/process/",
+        files=default_wav_upload,
+        data={
+            "denoise_strength": "0.3",
+            "eq_bands_json": eq_bands_json,
+            "apply_normalization": "True",
+            "request_waveform": "True",
+            "output_format": "flac"
+        }
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+    json_response = response.json()
+
+    assert json_response["audio_format"] == "flac"
+    assert json_response["audio_filename"] == "processed_test.flac"
+    assert isinstance(json_response["original_waveform"], list)
+    assert isinstance(json_response["processed_waveform"], list)
+    assert json_response["denoise_strength_applied"] == 0.3
+    assert json_response["normalization_applied"] is True
+    assert json_response["eq_bands_applied"] == eq_bands
+
+    # Verify audio content can be decoded
+    try:
+        audio_content = base64.b64decode(json_response["audio_b64"])
+        with io.BytesIO(audio_content) as audio_buffer:
+            data, sr = sf.read(audio_buffer) # Removed format='FLAC'
+            assert isinstance(data, np.ndarray) # Corrected indentation
+    except Exception as e:
+        pytest.fail(f"Failed to decode or read base64 FLAC audio: {e}")
+
+
+def test_process_audio_all_features_no_waveform_request(default_wav_upload):
+    eq_bands = [{"freq": 500, "gain": -2, "q": 1.0}]
+    eq_bands_json = json.dumps(eq_bands)
+
+    response = client.post(
+        "/process/",
+        files=create_dummy_wav_file(filename="test_no_wf.wav"), # Fresh file
+        data={
+            "denoise_strength": "0.1",
+            "eq_bands_json": eq_bands_json,
+            "apply_normalization": "True",
+            "request_waveform": "False", # Key difference
+            "output_format": "wav"
+        }
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav" # Direct audio stream
+    assert "attachment; filename=processed_test_no_wf.wav" in response.headers["content-disposition"]
+
+    # Verify it's valid audio content
+    with io.BytesIO(response.content) as audio_buffer:
+        data, sr = sf.read(audio_buffer)
+        assert isinstance(data, np.ndarray)
+        assert sr == 16000
