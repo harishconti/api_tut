@@ -1,0 +1,236 @@
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
+
+# Mock the Google Cloud SQL Connector to prevent it from trying to initialize
+# This should be done before `app` is imported if the connection is setup at import time.
+# However, fastapi_main.py imports db_reader which initializes Connector.
+# So, we need to ensure this patch is active when fastapi_main is first imported by the test runner.
+# One way is to put it here, as pytest will import this test file, and then when it imports app,
+# the patch will be active.
+
+# If db_reader.py is:
+# from google.cloud.sql.connector import Connector
+# connector = Connector() # This line runs at import time
+#
+# Then the patch needs to be active *before* `from backend.fastapi_main import app`
+# is executed by the test loader.
+# A common way to handle this is using a pytest fixture with autouse=True or by patching
+# directly in the test file that imports the app.
+
+# Let's try patching it directly here.
+# If Connector is used like `google.cloud.sql.connector.Connector`, this is the target.
+# If it's `from google.cloud.sql.connector import Connector` then `Connector` in that module's namespace.
+# The error trace shows `google.cloud.sql.connector.connector.py` and `Connector()`.
+# So the import in db_reader.py is likely `from google.cloud.sql.connector import Connector`
+# and then it calls `Connector()`. We need to patch `Connector` in `backend.modules.db_reader`.
+
+mock_connector_instance = MagicMock()
+mock_connector_instance.connect = MagicMock() # Mock the connect method if it's called
+
+# Patching 'backend.modules.db_reader.Connector' because db_reader.py is where 'Connector()' is called.
+# This assumes an import style like `from google.cloud.sql.connector import Connector` in db_reader.py
+@patch('backend.modules.db_reader.Connector', return_value=mock_connector_instance)
+def setup_google_auth_mock(mock_connector_class):
+    # This function is mainly to encapsulate the patch decorator.
+    # The actual app import will happen after this module is loaded and patched.
+    # We need to ensure the patch is active when `from backend.fastapi_main import app` runs.
+    # Pytest fixtures or conftest.py are better for managing this, but for a single file:
+    # The patch will be active for the duration of the 'setup_google_auth_mock' function's scope
+    # if it were called. But we need it active when 'app' is imported.
+    # A simpler way for this file:
+    pass # The decorator itself does the job if applied to a test or fixture.
+
+# The above approach with a function might not work as intended for module-level import.
+# A more direct way to ensure the patch is active *before* app import:
+# Use a fixture in conftest.py or apply patch in each test function that needs it,
+# or patch globally before app import if tests are run in a way that this module is loaded first.
+
+# For now, let's assume this test file is processed, and the patch is applied before the app import.
+# This is often tricky. A fixture in conftest.py is the most robust.
+#
+# The Google Cloud SQL Connector is now mocked via backend/tests/conftest.py
+# This ensures the mock is active before this module (and thus app) is imported.
+
+import soundfile as sf
+import numpy as np
+import io
+
+# Adjust the import path according to your project structure
+# This assumes that your tests are in backend/tests and your app is in backend/fastapi_main.py
+# If you run pytest from the root of the project, you might need to adjust Python's path
+# or use relative imports if your project is structured as a package.
+from backend.fastapi_main import app
+from backend.audio_utils import SUPPORTED_AUDIO_FORMATS
+
+client = TestClient(app)
+
+# Helper to create a dummy wav file in-memory
+def create_dummy_wav_file(filename="test.wav", duration=1, sr=16000):
+    data = np.random.randn(duration * sr)
+    buffer = io.BytesIO()
+    sf.write(buffer, data, sr, format='wav', subtype='PCM_16')
+    buffer.seek(0)
+    return {"file": (filename, buffer, "audio/wav")}
+
+
+@pytest.fixture(scope="module")
+def default_wav_upload():
+    return create_dummy_wav_file()
+
+def test_index_route():
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.json() == {"message": "Welcome to the Audio Processing API. Use the /process/ endpoint to process audio."}
+
+# Tests for /process/ endpoint
+def test_process_audio_default_params(default_wav_upload):
+    response = client.post("/process/", files=default_wav_upload)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav" # Default output format
+    assert "attachment; filename=processed_test.wav" in response.headers["content-disposition"]
+
+    # Try to read the audio data from response
+    with io.BytesIO(response.content) as audio_buffer:
+        data, sr = sf.read(audio_buffer)
+        assert isinstance(data, np.ndarray)
+        assert sr == 16000 # Assuming default_wav_upload uses 16000
+
+def test_process_audio_custom_denoise_strength(default_wav_upload):
+    response = client.post(
+        "/process/",
+        files=default_wav_upload,
+        data={"denoise_strength": "0.8"} # Form data
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    # Further checks could involve analyzing the output if we had a deterministic way
+    # to measure denoising, but for now, successful processing is the main check.
+
+def test_process_audio_output_format_flac(default_wav_upload):
+    response = client.post(
+        "/process/",
+        files=default_wav_upload,
+        data={"output_format": "flac"}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/flac"
+    assert "attachment; filename=processed_test.flac" in response.headers["content-disposition"]
+    with io.BytesIO(response.content) as audio_buffer:
+        data, sr = sf.read(audio_buffer) # soundfile can read flac
+        assert isinstance(data, np.ndarray)
+
+def test_process_audio_output_format_mp3(default_wav_upload):
+    # MP3 processing might depend on ffmpeg being available for soundfile/libsndfile
+    # If it's not guaranteed, this test might be flaky or fail.
+    # For now, we assume the backend will try and succeed or fail gracefully.
+    # The backend currently restricts output to wav/flac if input is not mp3,
+    # but if input is mp3, it tries to output mp3.
+    # The FastAPI endpoint now explicitly checks against SUPPORTED_AUDIO_FORMATS for output.
+    mp3_upload = create_dummy_wav_file(filename="test_for_mp3.wav") # start with wav for consistent input
+    response = client.post(
+        "/process/",
+        files=mp3_upload,
+        data={"output_format": "mp3"}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/mp3"
+    assert "attachment; filename=processed_test_for_mp3.mp3" in response.headers["content-disposition"]
+    # Validating MP3 content is harder without a dedicated library or assuming ffmpeg
+    # For now, checking headers and status is a good start.
+
+
+@pytest.mark.parametrize("strength_val, expected_status", [
+    ("0.5", 200), ("0", 200), ("1", 200), # Valid
+    ("-0.1", 422), ("1.1", 422), ("abc", 422) # Invalid
+])
+def test_process_audio_invalid_denoise_strength(default_wav_upload, strength_val, expected_status):
+    response = client.post(
+        "/process/",
+        files=default_wav_upload, # Need to re-create as buffer is consumed
+        data={"denoise_strength": strength_val}
+    )
+    assert response.status_code == expected_status
+    if expected_status == 422:
+        assert "detail" in response.json()
+
+
+def test_process_audio_unsupported_output_format(default_wav_upload):
+    response = client.post(
+        "/process/",
+        files=default_wav_upload,
+        data={"output_format": "ogg"} # Assuming ogg is not in SUPPORTED_AUDIO_FORMATS
+    )
+    assert response.status_code == 400 # Changed from 422 to 400 based on current implementation
+    json_response = response.json()
+    assert "detail" in json_response
+    assert "Unsupported output format: ogg" in json_response["detail"]
+
+
+def test_process_audio_no_file():
+    response = client.post("/process/")
+    assert response.status_code == 422 # FastAPI's handling of missing File(...)
+    assert "detail" in response.json()
+    # Example check for the detail message structure
+    details = response.json()["detail"]
+    found_missing_file = any(d["type"] == "missing" and "file" in d["loc"] for d in details)
+    assert found_missing_file
+
+
+def test_process_audio_unsupported_input_file_type():
+    # Create a dummy text file
+    txt_file_content = b"This is not an audio file."
+    files = {"file": ("test.txt", io.BytesIO(txt_file_content), "text/plain")}
+    response = client.post("/process/", files=files)
+    assert response.status_code == 400
+    json_response = response.json()
+    assert "detail" in json_response
+    assert "Unsupported audio format: txt" in json_response["detail"]
+
+# Ensure SUPPORTED_AUDIO_FORMATS is used for parameterizing some tests if needed
+@pytest.mark.parametrize("supported_format", SUPPORTED_AUDIO_FORMATS)
+def test_process_audio_all_supported_output_formats(supported_format):
+    # This test is a bit more involved as it needs to handle mp3 potentially.
+    # Soundfile might not be able to write all formats without external dependencies (like ffmpeg for mp3).
+    # The backend's save_audio_to_bytesio uses soundfile, so its limitations apply.
+
+    # Skip mp3 if soundfile cannot write it without external tools, to avoid test failures.
+    # This is a common issue with testing mp3 generation.
+    can_write_mp3 = False
+    try:
+        # Try to write a dummy mp3 to see if soundfile supports it in current env
+        # This is a bit of a hack for test setup.
+        d = np.array([0], dtype=np.float32)
+        sf.write(io.BytesIO(), d, 16000, format='mp3')
+        can_write_mp3 = True
+    except Exception: # Could be sf.LibsndfileError or other soundfile/system errors
+        can_write_mp3 = False
+
+    if supported_format == "mp3" and not can_write_mp3:
+        pytest.skip(f"Skipping {supported_format} output test as soundfile cannot write it in this environment.")
+
+    # Re-create dummy file for each parametrized test run
+    dummy_file_upload = create_dummy_wav_file(filename=f"input_for_{supported_format}.wav")
+    response = client.post(
+        "/process/",
+        files=dummy_file_upload,
+        data={"output_format": supported_format}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == f"audio/{supported_format}"
+    assert f"processed_input_for_{supported_format}.{supported_format}" in response.headers["content-disposition"]
+
+    # Attempt to read the response content to verify it's a valid audio file of the format
+    with io.BytesIO(response.content) as audio_buffer:
+        try:
+            data, sr = sf.read(audio_buffer)
+            assert isinstance(data, np.ndarray)
+        except Exception as e:
+            pytest.fail(f"Failed to read processed audio format {supported_format}: {e}")
+
+# Note: To run these tests, pytest needs to be installed (pip install pytest).
+# Run from the project root or ensure backend directory is in PYTHONPATH.
+# Example: From project root: python -m pytest backend/tests
+# If `backend.fastapi_main` cannot be found, it's likely a PYTHONPATH issue.
+# Consider structuring your project with a setup.py or pyproject.toml to make it installable
+# or adjust PYTHONPATH: `export PYTHONPATH=.` from the root before running pytest.
