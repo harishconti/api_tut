@@ -22,6 +22,78 @@ export const AppHeader = styled.header`
   }
 `;
 
+// General purpose styled components that might be used across different components
+// or can be moved to a more generic styles file later if needed.
+
+export const FormGroup = styled.div`
+  margin-bottom: 20px;
+  text-align: left;
+
+  label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #555;
+  }
+
+  input[type="file"],
+  input[type="range"],
+  select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease-in-out;
+
+    &:focus {
+      border-color: #007bff;
+      outline: none;
+    }
+  }
+
+  input[type="checkbox"] {
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+`;
+
+export const Fieldset = styled.fieldset`
+  border: 1px solid #ddd;
+  padding: 20px;
+  border-radius: 8px;
+  /* margin-bottom: 20px; */ /* Removed for better control by parent layout */
+
+  legend {
+    padding: 0 10px;
+    font-weight: bold;
+    color: #007bff;
+  }
+`;
+
+export const Button = styled.button`
+  background-color: #007bff;
+  color: white;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.2s ease-in-out;
+  align-self: center; /* Center button in flex form */
+
+  &:hover {
+    background-color: #0056b3;
+  }
+
+  &:disabled {
+    background-color: #aecbfa; /* Lighter blue when disabled */
+    cursor: not-allowed;
+  }
+`;
+
+// More specific layout components that may use the general ones above
+
 export const EQBandControlsGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); /* Responsive grid */
@@ -167,76 +239,6 @@ export const WaveformsSection = styled.div`
   margin-top: 30px;
   gap: 20px;
   flex-wrap: wrap;
-`;
-
-// General purpose styled components that might be used across different components
-// or can be moved to a more generic styles file later if needed.
-
-export const FormGroup = styled.div`
-  margin-bottom: 20px;
-  text-align: left;
-
-  label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight: bold;
-    color: #555;
-  }
-
-  input[type="file"],
-  input[type="range"],
-  select {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-sizing: border-box;
-    transition: border-color 0.2s ease-in-out;
-
-    &:focus {
-      border-color: #007bff;
-      outline: none;
-    }
-  }
-
-  input[type="checkbox"] {
-    margin-right: 10px;
-    vertical-align: middle;
-  }
-`;
-
-export const Fieldset = styled.fieldset`
-  border: 1px solid #ddd;
-  padding: 20px;
-  border-radius: 8px;
-  /* margin-bottom: 20px; */ /* Removed for better control by parent layout */
-
-  legend {
-    padding: 0 10px;
-    font-weight: bold;
-    color: #007bff;
-  }
-`;
-
-export const Button = styled.button`
-  background-color: #007bff;
-  color: white;
-  padding: 12px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 16px;
-  transition: background-color 0.2s ease-in-out;
-  align-self: center; /* Center button in flex form */
-
-  &:hover {
-    background-color: #0056b3;
-  }
-
-  &:disabled {
-    background-color: #aecbfa; /* Lighter blue when disabled */
-    cursor: not-allowed;
-  }
 `;
 
 // Specific component styles - can be moved to their own files if they grow
