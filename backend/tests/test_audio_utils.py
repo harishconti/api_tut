@@ -53,6 +53,21 @@ def test_denoise_audio_default_strength(mono_audio_data, sample_rate):
     assert isinstance(denoised, np.ndarray)
     assert denoised.shape == mono_audio_data.shape
 
+def test_denoise_stereo_audio(stereo_audio_data, sample_rate):
+    """Tests that denoise_audio processes stereo input and returns stereo output."""
+    strength = 0.5
+    denoised_stereo = denoise_audio(stereo_audio_data, sample_rate, strength=strength)
+
+    assert isinstance(denoised_stereo, np.ndarray)
+    assert denoised_stereo.ndim == 2, "Denoised audio should remain stereo (2 dimensions)"
+    assert denoised_stereo.shape[0] == stereo_audio_data.shape[0], "Number of samples should be preserved"
+    assert denoised_stereo.shape[1] == stereo_audio_data.shape[1], "Number of channels should be preserved"
+
+    # Check that content has changed (denoising had an effect)
+    # This is a basic check; actual denoising quality is subjective.
+    if np.any(stereo_audio_data): # only if input is not silent
+        assert not np.allclose(denoised_stereo, stereo_audio_data, atol=1e-6), "Denoising should alter the audio data"
+
 # Tests for load_audio_from_uploadfile
 @pytest.mark.asyncio
 async def test_load_audio_from_uploadfile_wav_mono_async_mock(mono_audio_data, sample_rate):
@@ -74,6 +89,32 @@ async def test_load_audio_from_uploadfile_wav_mono_async_mock(mono_audio_data, s
     assert np.allclose(audio_data, mono_audio_data, atol=1e-3) # Increased tolerance
     mock_file.read.assert_awaited_once()
 
+@pytest.mark.asyncio
+async def test_load_audio_preserves_stereo(stereo_audio_data, sample_rate):
+    """Tests that loading a stereo WAV file preserves its channels and shape."""
+    buffer = io.BytesIO()
+    sf.write(buffer, stereo_audio_data, sample_rate, format='wav', subtype='PCM_16')
+    buffer.seek(0)
+    file_content = buffer.read()
+
+    mock_file = MagicMock(spec=UploadFile)
+    mock_file.filename = "stereo_test.wav"
+    mock_file.read = AsyncMock(return_value=file_content)
+
+    audio_data, sr, error = await load_audio_from_uploadfile(mock_file)
+
+    assert error is None
+    assert sr == sample_rate
+    assert isinstance(audio_data, np.ndarray)
+    assert audio_data.ndim == 2, "Audio data should have 2 dimensions for stereo"
+    assert audio_data.shape[0] == stereo_audio_data.shape[0], "Number of samples should match"
+    assert audio_data.shape[1] == 2, "Audio data should have 2 channels"
+    # Compare content, allowing for potential minor differences due to int16 conversion and back
+    assert np.allclose(audio_data, stereo_audio_data, atol=1e-3)
+    mock_file.read.assert_awaited_once()
+
+
+@pytest.mark.skip(reason="Test expects mono conversion, but function now preserves stereo. Needs rework or removal.")
 @pytest.mark.asyncio
 async def test_load_audio_from_uploadfile_wav_stereo_to_mono_async_mock(stereo_audio_data, sample_rate):
     buffer = io.BytesIO()
@@ -191,6 +232,33 @@ def test_apply_equalizer_stereo_input(stereo_audio_data, sample_rate):
     assert isinstance(equalized_audio, np.ndarray)
     assert equalized_audio.ndim == 2
     assert equalized_audio.shape == stereo_audio_data.shape
+
+@pytest.mark.parametrize("q_value", [0.0001, 0.1, 1.0, 10.0, 1000.0])
+def test_apply_equalizer_q_edge_cases(mono_audio_data, sample_rate, q_value):
+    """Tests apply_equalizer with various Q values to ensure stability."""
+    eq_bands = [{"freq": 1000, "gain": 3, "q": q_value}]
+    try:
+        equalized_audio = apply_equalizer(mono_audio_data, sample_rate, eq_bands)
+        assert isinstance(equalized_audio, np.ndarray)
+        assert equalized_audio.shape == mono_audio_data.shape
+        # Basic check: output should differ from input if gain is applied and audio is not silent
+        if np.any(mono_audio_data):
+            # For very high Q or very low Q, the change might be subtle or localized
+            # This check might be too strict for extreme Qs if change is minimal across the whole signal
+            # but it ensures the function runs.
+            pass # Not asserting np.allclose here as effect can be very frequency-specific
+    except ValueError as e:
+        # Depending on implementation, very extreme Q might raise ValueError (e.g. if it leads to unstable filter)
+        # For now, we primarily want to ensure it doesn't crash unexpectedly.
+        # Allow ValueError for known problematic Q values if any, or assert it does NOT occur for reasonable Qs.
+        # The current implementation has safeguards for q_factor <=0 and < 0.001 in apply_equalizer.
+        if q_value <=0: # Expecting a failure or specific handling for non-positive Q.
+            pytest.skip(f"Q value {q_value} is expected to be handled or raise error, skipping direct assertion of change.")
+        else:
+            pytest.fail(f"apply_equalizer failed with Q={q_value}: {e}")
+    except Exception as e:
+        pytest.fail(f"apply_equalizer failed unexpectedly with Q={q_value}: {e}")
+
 
 # Tests for normalize_audio_loudness
 def test_normalize_audio_loudness_mono(mono_audio_data, sample_rate):

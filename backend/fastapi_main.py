@@ -68,21 +68,38 @@ async def process_audio_endpoint(
         original_waveform_data = generate_waveform_data(audio_data, sample_rate)
 
     # Start with original audio data for processing
-    processed_data = audio_data.copy()
-    num_channels = processed_data.ndim # 1 for mono, 2 for stereo (if shape is (samples, channels))
-    if processed_data.ndim == 2:
-        num_channels = processed_data.shape[1]
+    processed_data = audio_data.copy() # Make a copy for processing
 
+    # Determine number of channels from the loaded audio_data
+    if processed_data.ndim == 1:
+        num_channels = 1
+    elif processed_data.ndim == 2:
+        num_channels = processed_data.shape[1]
+    else:
+        # This case should ideally not be reached if sf.read(always_2d=False) works as expected
+        raise HTTPException(status_code=500, detail="Unsupported audio data shape after loading.")
+
+    # Store original channel count for potential reconstruction if denoising alters it
+    original_num_channels = num_channels
 
     # 1. Denoising (if strength > 0)
     if denoise_strength > 0.0: # Only apply if strength is meaningful
         processed_data = denoise_audio(processed_data, sample_rate, strength=denoise_strength)
+        # denoise_audio might change channel count (e.g. stereo to mono).
+        # Update num_channels based on the output of denoise_audio for subsequent steps.
+        if processed_data.ndim == 1:
+            num_channels = 1
+        elif processed_data.ndim == 2:
+            num_channels = processed_data.shape[1]
+
 
     # 2. Equalization
+    # Apply EQ using the current number of channels of processed_data
     if eq_bands_json:
         try:
             eq_bands: List[Dict[str, Any]] = json.loads(eq_bands_json)
             if eq_bands: # Only apply if there are bands defined
+                # Pass the current num_channels of processed_data to apply_equalizer
                 processed_data = apply_equalizer(processed_data, sample_rate, eq_bands, channels=num_channels)
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid JSON format for EQ bands.")

@@ -14,23 +14,45 @@ SUPPORTED_AUDIO_FORMATS = ["wav", "mp3", "flac"]
 def denoise_audio(audio_data: np.ndarray, sample_rate: int, strength: float = 0.5) -> np.ndarray: # Default strength added
     """
     Denoises an audio signal using spectral gating.
+    If input is stereo, it's converted to mono for denoising, and the result
+    is duplicated to match original stereo channel count.
 
     Args:
-        audio_data (np.ndarray): The input audio signal.
+        audio_data (np.ndarray): The input audio signal (mono or stereo).
         sample_rate (int): The sample rate of the audio signal.
+        strength (float): Denoising strength (0.0 to 1.0).
 
     Returns:
-        np.ndarray: The denoised audio signal.
+        np.ndarray: The denoised audio signal, with original channel count preserved.
     """
-    # Perform noise reduction
-    reduced_noise = nr.reduce_noise(y=audio_data, sr=sample_rate)
-    # The prop_decrease parameter controls how much noise reduction is applied.
-    # It's a value between 0 and 1. Higher values mean more noise reduction.
-    # We can map our strength parameter (e.g., 0-100 or 0.0-1.0) to this.
-    # For now, let's assume strength is 0.0 to 1.0, and use it directly for prop_decrease.
-    # A lower prop_decrease means less aggressive noise reduction.
-    # Default for noisereduce is 1.0
-    return nr.reduce_noise(y=audio_data, sr=sample_rate, prop_decrease=strength)
+    original_channels = 1
+    mono_audio_data = audio_data
+    was_stereo = False
+
+    if audio_data.ndim == 2:
+        original_channels = audio_data.shape[1]
+        if original_channels > 1 : # Covers stereo and multi-channel more broadly
+            was_stereo = True
+            # Convert to mono for noisereduce. Transpose if shape is (channels, samples)
+            # Soundfile gives (samples, channels), so audio_data.T is (channels, samples) for librosa
+            mono_audio_data = librosa.to_mono(audio_data.T)
+        elif original_channels == 1: # Case where audio_data is (samples, 1)
+             mono_audio_data = audio_data.reshape(-1) # Flatten to 1D for noisereduce
+
+    # Noisereduce expects 1D or 2D array (y or y_multichannel)
+    # For simplicity and as per plan, we use the 1D mono version.
+    denoised_mono = nr.reduce_noise(y=mono_audio_data, sr=sample_rate, prop_decrease=strength)
+
+    if was_stereo and original_channels > 1:
+        # Duplicate the denoised mono channel to restore the original channel count
+        # np.tile can work, or np.column_stack for 2 channels
+        if original_channels == 2: # Common stereo case
+            denoised_stereo = np.column_stack((denoised_mono, denoised_mono))
+        else: # For >2 channels, repeat the mono track for each channel
+            denoised_stereo = np.tile(denoised_mono, (original_channels, 1)).T
+        return denoised_stereo
+    else:
+        return denoised_mono
 
 async def load_audio_from_uploadfile(file: UploadFile) -> tuple[np.ndarray | None, int | None, str | None]:
     """
@@ -54,10 +76,11 @@ async def load_audio_from_uploadfile(file: UploadFile) -> tuple[np.ndarray | Non
 
     try:
         contents = await file.read()
-        audio_data, sample_rate = sf.read(io.BytesIO(contents))
-        # Ensure audio is mono for simplicity with noisereduce
-        if audio_data.ndim > 1:
-            audio_data = librosa.to_mono(audio_data.T) # Transpose if multi-channel from soundfile
+        # Load audio data, preserving original channel layout
+        # sf.read by default returns data as (frames, channels) for multi-channel files.
+        audio_data, sample_rate = sf.read(io.BytesIO(contents), always_2d=False)
+        # always_2d=False ensures mono files are loaded as 1D arrays, stereo as 2D (samples, channels)
+        # No explicit mono conversion here. Downstream functions will handle.
         return audio_data, sample_rate, None
     except Exception as e:
         return None, None, f"Error loading audio file: {str(e)}"
@@ -95,20 +118,23 @@ def apply_equalizer(audio_data: np.ndarray, sample_rate: int, eq_bands: List[Dic
     Returns:
         np.ndarray: Equalized audio data.
     """
+    # Determine channels from audio_data shape
     if audio_data.ndim == 1:
-        channels = 1
-    elif audio_data.ndim == 2 and audio_data.shape[1] in [1, 2]: # Check if shape is (samples, channels)
-        channels = audio_data.shape[1]
-        # pydub expects (samples, channels) for stereo, but if it's (channels, samples) from librosa, transpose.
-        # However, soundfile.read usually gives (samples, channels)
-    else: # Fallback or error for unexpected shapes
-        # For simplicity, let's assume it's mono if not clearly stereo (samples, 2)
-        # Or raise an error: raise ValueError("Unsupported audio data shape for equalization.")
-        # For now, let's try to force mono if not (samples, 2)
-        if audio_data.ndim > 1 : # if it's not mono
-             audio_data = librosa.to_mono(audio_data.T if audio_data.shape[0] < audio_data.shape[1] else audio_data) # Ensure mono
-        channels = 1
+        current_channels = 1
+    elif audio_data.ndim == 2:
+        current_channels = audio_data.shape[1]
+        if current_channels == 0: # Should not happen with valid audio
+             raise ValueError("Audio data has zero channels.")
+        # If audio_data is (samples, 1), treat as mono
+        if current_channels == 1:
+            audio_data = audio_data.reshape(-1) # Ensure it's 1D for pydub mono
+            current_channels = 1
+    else:
+        raise ValueError(f"Unsupported audio data dimensions: {audio_data.ndim}")
 
+    # The 'channels' parameter passed to the function can be a hint,
+    # but audio_data's shape is the ground truth at this point.
+    # For pydub, we use current_channels derived from audio_data.
 
     # Convert numpy array to AudioSegment
     # Ensure data is in int16 format for pydub if it's float
@@ -126,27 +152,32 @@ def apply_equalizer(audio_data: np.ndarray, sample_rate: int, eq_bands: List[Dic
             data=audio_data_int.tobytes(),
             sample_width=audio_data_int.dtype.itemsize,
             frame_rate=sample_rate,
-            channels=channels
+            channels=current_channels
         )
     except Exception as e:
-        # Fallback to mono if stereo conversion fails (e.g. if data was not interleaved as expected)
-        # This can happen if input array shape was (2, samples) for stereo
-        if channels == 2:
-            # Try converting to mono and processing
-            mono_data = librosa.to_mono(audio_data.T if audio_data.shape[0] < audio_data.shape[1] else audio_data)
-            if mono_data.dtype == np.float32 or mono_data.dtype == np.float64:
-                mono_data_int = (mono_data * 32767).astype(np.int16)
-            else:
-                mono_data_int = mono_data.astype(np.int16)
+        # Fallback to mono if stereo conversion fails.
+        # This might happen if input was stereo (current_channels=2) but data was malformed for pydub.
+        if current_channels == 2:
+            # Log warning or error here if possible
+            # print(f"Warning: Failed to create stereo AudioSegment, falling back to mono. Error: {e}")
+            mono_audio_data_fallback = audio_data # Use the original audio_data before int conversion for librosa
+            if mono_audio_data_fallback.ndim == 2 : # If it was stereo (samples, 2)
+                 mono_audio_data_fallback = librosa.to_mono(mono_audio_data_fallback.T) # Transpose for librosa
+
+            if mono_audio_data_fallback.dtype == np.float32 or mono_audio_data_fallback.dtype == np.float64:
+                mono_data_int = (mono_audio_data_fallback * 32767).astype(np.int16)
+            else: # If it was already int somehow, or other type
+                mono_data_int = mono_audio_data_fallback.astype(np.int16)
+
             sound = AudioSegment(
                 data=mono_data_int.tobytes(),
                 sample_width=mono_data_int.dtype.itemsize,
                 frame_rate=sample_rate,
                 channels=1 # Forcing mono
             )
-            channels = 1 # Update channels variable
+            current_channels = 1 # Update current_channels to reflect the change
         else:
-            raise e # Re-raise if it wasn't a stereo issue
+            raise e # Re-raise if it wasn't a stereo issue or already mono
 
     # Apply EQ bands
     # pydub's eq is a filter instance. You apply it by passing the AudioSegment to it.
@@ -196,21 +227,33 @@ def apply_equalizer(audio_data: np.ndarray, sample_rate: int, eq_bands: List[Dic
     for band in eq_bands:
         # Ensure Q is positive, pydub might be sensitive
         q_factor = band.get("q", 1.0)
-        if q_factor <= 0: q_factor = 0.01 # Avoid zero or negative Q
+        if q_factor <= 0:
+            q_factor = 0.01 # Avoid zero or negative Q, ensure it's small enough for wide band
 
         center_freq = band["freq"]
         gain_db = band["gain"]
 
-        # Q = center_freq / bandwidth  => bandwidth = center_freq / Q
-        # Ensure bandwidth is positive
-        bandwidth = max(center_freq / q_factor, 1.0) # Avoid zero or too small bandwidth
+        # Q factor for pydub.scipy_effects.eq (which uses scipy.signal.butter for bandpass)
+        # needs to be handled carefully. For a bandpass filter, Q > 0.5 is typically required
+        # to ensure the lower cutoff frequency (f0 - BW/2) is positive.
+        # BW_Hz = center_freq / Q
+        # We need: center_freq - (center_freq / Q) / 2 > 0
+        # center_freq * (1 - 1/(2*Q)) > 0
+        # Since center_freq > 0, we need 1 - 1/(2*Q) > 0  => 1 > 1/(2*Q) => 2*Q > 1 => Q > 0.5
+
+        MIN_Q_FACTOR = 0.501 # Slightly above 0.5 to avoid floating point issues at boundary
+        if q_factor < MIN_Q_FACTOR:
+            q_factor = MIN_Q_FACTOR
+
+        bandwidth_hz = center_freq / q_factor
+        # This should now always be positive and center_freq - bandwidth_hz/2 will be > 0
 
         equalized_sound = pydub_eq(
             equalized_sound,
             focus_freq=center_freq,
             gain_dB=gain_db,
-            bandwidth=bandwidth,
-            filter_mode="peak" # Explicitly peak, though it's default for scipy_effects.eq
+            bandwidth=bandwidth_hz, # Pass bandwidth in Hz
+            filter_mode="peak"
         )
 
     # Convert AudioSegment back to numpy array

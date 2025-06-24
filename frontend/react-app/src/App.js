@@ -1,5 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import './App.css';
+import React, { useState, useEffect, useRef } from 'react'; // Import useRef
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import FileUpload from './components/FileUpload';
+import AudioControls from './components/AudioControls';
+import AudioPlayer from './components/AudioPlayer';
+import WaveformDisplay from './components/WaveformDisplay';
+import { processAudio as processAudioAPI } from './api';
+import {
+  AppContainer,
+  AppHeader,
+  MainContent,
+  StyledForm,
+  TwoColumnFormLayout, // Import new layout component
+  ErrorMessage,
+  WaveformsSection,
+  Button
+} from './styles/App.styles';
 
 const SUPPORTED_OUTPUT_FORMATS = ["wav", "mp3", "flac"];
 
@@ -7,48 +23,72 @@ function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [processedAudio, setProcessedAudio] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [denoiseStrength, setDenoiseStrength] = useState(0.5); // Default strength
-  const [outputFormat, setOutputFormat] = useState('wav'); // Default output format
+  // const [error, setError] = useState(''); // This will be replaced by toast notifications
+  const [denoiseStrength, setDenoiseStrength] = useState(0.5);
+  const [outputFormat, setOutputFormat] = useState('wav');
   const [downloadFilename, setDownloadFilename] = useState('processed_audio.wav');
 
-  // New states for EQ, Normalization, and Waveform
-  const [eqLowCutGain, setEqLowCutGain] = useState(0); // Represents gain for a low-frequency band (simulating cut)
-  const [eqClarityGain, setEqClarityGain] = useState(0); // For vocal clarity band
-  const [eqPresenceGain, setEqPresenceGain] = useState(0); // For presence/sibilance band
+  // const [eqLowCutGain, setEqLowCutGain] = useState(0); // Replaced by dynamic EQ bands
+  // const [eqClarityGain, setEqClarityGain] = useState(0); // Replaced by dynamic EQ bands
+  // const [eqPresenceGain, setEqPresenceGain] = useState(0); // Replaced by dynamic EQ bands
+  const [eqBands, setEqBands] = useState([ // Initial default bands
+    { id: 'lowcut', freq: 100, gain: 0, q: 0.7, type: 'lowshelf', editable: true, removable: false, name: "Low Cut" }, // Made it a shelf
+    { id: 'clarity', freq: 2500, gain: 0, q: 1.4, type: 'peaking', editable: true, removable: false, name: "Vocal Clarity" },
+    { id: 'presence', freq: 5000, gain: 0, q: 2.0, type: 'peaking', editable: true, removable: false, name: "Presence/Sibilance" }
+  ]);
   const [applyNormalization, setApplyNormalization] = useState(false);
-  const [requestWaveform, setRequestWaveform] = useState(true); // Default to true to show waveforms
+  const [requestWaveform, setRequestWaveform] = useState(true);
   const [originalWaveform, setOriginalWaveform] = useState(null);
   const [processedWaveform, setProcessedWaveform] = useState(null);
+  const [audioDuration, setAudioDuration] = useState(0); // For storing duration of processed audio
 
+  const audioRef = useRef(null); // Ref for the audio element
+
+  // EQ Band Management Functions
+  const handleAddEqBand = () => {
+    setEqBands(prevBands => [
+      ...prevBands,
+      {
+        id: `band-${Date.now()}`, // Simple unique ID
+        freq: 1000,
+        gain: 0,
+        q: 1.0,
+        type: 'peaking',
+        editable: true,
+        removable: true,
+        name: `Custom Band ${prevBands.filter(b => b.removable).length + 1}`
+      }
+    ]);
+  };
+
+  const handleRemoveEqBand = (idToRemove) => {
+    setEqBands(prevBands => prevBands.filter(band => band.id !== idToRemove));
+  };
+
+  const handleUpdateEqBand = (idToUpdate, newValues) => {
+    setEqBands(prevBands =>
+      prevBands.map(band =>
+        band.id === idToUpdate ? { ...band, ...newValues } : band
+      )
+    );
+  };
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
+    setAudioDuration(0); // Reset duration on new file
+    if (audioRef.current) { // If there's an old audio src, clear it and pause
+        audioRef.current.pause();
+        audioRef.current.src = '';
+    }
     setSelectedFile(file);
-    setProcessedAudio(null); // Reset previous processed audio
-    setOriginalWaveform(null); // Reset waveforms
-    setProcessedWaveform(null); // Reset waveforms
-    setError(''); // Reset previous error
+    setProcessedAudio(null);
+    setOriginalWaveform(null);
+    setProcessedWaveform(null);
+    // setError(''); // No longer using setError
     if (file) {
       const parts = file.name.split('.');
       const originalNameWithoutExtension = parts.length > 1 ? parts.slice(0, -1).join('.') : parts[0];
       setDownloadFilename(`processed_${originalNameWithoutExtension}.${outputFormat}`);
-    }
-  };
-
-  const handleStrengthChange = (event) => {
-    setDenoiseStrength(parseFloat(event.target.value));
-  };
-
-  const handleFormatChange = (event) => {
-    const newFormat = event.target.value;
-    setOutputFormat(newFormat);
-    if (selectedFile) {
-      const parts = selectedFile.name.split('.');
-      const originalNameWithoutExtension = parts.length > 1 ? parts.slice(0, -1).join('.') : parts[0];
-      setDownloadFilename(`processed_${originalNameWithoutExtension}.${newFormat}`);
-    } else {
-      setDownloadFilename(`processed_audio.${newFormat}`);
     }
   };
 
@@ -60,16 +100,15 @@ function App() {
     }
   }, [selectedFile, outputFormat]);
 
-
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!selectedFile) {
-      setError('Please select an audio file first.');
+      toast.error('Please select an audio file first.');
       return;
     }
 
     setIsLoading(true);
-    setError('');
+    // setError(''); // No longer using setError
     setProcessedAudio(null);
     setOriginalWaveform(null);
     setProcessedWaveform(null);
@@ -78,287 +117,158 @@ function App() {
     formData.append('file', selectedFile);
     formData.append('denoise_strength', denoiseStrength);
     formData.append('output_format', outputFormat);
-    formData.append('apply_normalization', String(applyNormalization)); // Booleans need to be string for FormData
+    formData.append('apply_normalization', String(applyNormalization));
     formData.append('request_waveform', String(requestWaveform));
 
-    // Construct EQ bands
-    const eqBands = [];
-    if (eqLowCutGain < 0) { // Only add if gain is applied (negative for cut)
-      eqBands.push({ freq: 100, gain: eqLowCutGain, q: 0.7 });
-    }
-    if (eqClarityGain !== 0) {
-      eqBands.push({ freq: 2500, gain: eqClarityGain, q: 1.4 });
-    }
-    if (eqPresenceGain !== 0) {
-      eqBands.push({ freq: 5000, gain: eqPresenceGain, q: 2.0 });
-    }
+    // Construct EQ bands from the state
+    const activeEqBands = eqBands
+      .filter(band => band.gain !== 0 || (band.type === 'lowshelf' && band.gain < 0) || (band.type === 'highshelf' && band.gain < 0) ) // only include bands that have an effect
+      .map(band => ({
+        freq: band.freq,
+        gain: band.gain,
+        q: band.q,
+        type: band.type // Pass type to backend
+      }));
 
-    if (eqBands.length > 0) {
-      formData.append('eq_bands_json', JSON.stringify(eqBands));
+    if (activeEqBands.length > 0) {
+      formData.append('eq_bands_json', JSON.stringify(activeEqBands));
     }
 
     try {
-      const response = await fetch('http://localhost:8000/process/', {
-        method: 'POST',
-        body: formData,
-      });
+      const result = await processAudioAPI(formData);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Unknown error occurred during processing' }));
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      setProcessedAudio(result.audioUrl);
+      setDownloadFilename(result.downloadFilename);
+
+      if (result.isJson && requestWaveform) {
+        setOriginalWaveform(result.originalWaveform);
+        setProcessedWaveform(result.processedWaveform);
+      } else if (!result.isJson) {
+        // If we didn't get JSON, it means waveforms weren't returned or requested in a way api.js could parse
+        // Reset them if they were previously set
+        setOriginalWaveform(null);
+        setProcessedWaveform(null);
       }
-
-      if (requestWaveform) {
-        const data = await response.json();
-        // Decode base64 audio
-        const audioBytes = Uint8Array.from(atob(data.audio_b64), c => c.charCodeAt(0));
-        const audioBlob = new Blob([audioBytes], { type: `audio/${data.audio_format || outputFormat}` });
-        const audioUrl = URL.createObjectURL(audioBlob);
-
-        setProcessedAudio(audioUrl);
-        setOriginalWaveform(data.original_waveform);
-        setProcessedWaveform(data.processed_waveform);
-        setDownloadFilename(data.audio_filename || `processed_audio.${data.audio_format || outputFormat}`);
-      } else {
-        // Handle as a direct audio stream (blob)
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        setProcessedAudio(url);
-
-        // Extract filename from Content-Disposition header
-        const disposition = response.headers.get('Content-Disposition');
-        if (disposition && disposition.indexOf('attachment') !== -1) {
-          const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
-          const matches = filenameRegex.exec(disposition);
-          if (matches != null && matches[1]) {
-            let filename = matches[1].replace(/['"]/g, '');
-            setDownloadFilename(filename);
-          } else {
-            // Fallback if filename parsing fails but disposition exists
-            setDownloadFilename(`processed_audio.${outputFormat}`);
-          }
-        } else {
-           // Fallback if no Content-Disposition
-           const parts = selectedFile.name.split('.');
-           const originalNameWithoutExtension = (parts.length > 1 ? parts.slice(0, -1).join('.') : parts[0]) || 'audio';
-           setDownloadFilename(`processed_${originalNameWithoutExtension}.${outputFormat}`);
-        }
+      // If requestWaveform was true but result.isJson was false, the backend didn't return JSON.
+      // The api.js handles the audio part. Here we just ensure waveforms are cleared.
+      if (requestWaveform && !result.isJson) {
+          console.warn("Waveforms were requested, but the server response was not in the expected JSON format.");
+          toast.warn("Waveforms were requested, but the server response was not in the expected JSON format. Audio is processed.");
       }
+      toast.success("Audio processed successfully!");
 
     } catch (err) {
       console.error('Error processing audio:', err);
-      setError(err.message || 'Failed to process audio. Please check the console for more details.');
+      // setError(err.message || 'Failed to process audio. Please check the console for more details.'); // Replaced
+      toast.error(err.message || 'Failed to process audio. Please check the server logs.');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      setAudioDuration(audioRef.current.duration);
+    }
+  };
+
+  const handleWaveformSeek = (seekTime) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = seekTime;
+      audioRef.current.play().catch(error => {
+        // Autoplay was prevented, usually by browser policy.
+        // You might want to inform the user or handle this gracefully.
+        console.warn("Autoplay prevented: ", error);
+        toast.info("Playback initiated. If audio doesn't start, press play.");
+      });
+    }
+  };
+
   return (
-    <div className="App">
-      <header className="App-header">
+    <AppContainer>
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="colored"
+      />
+      <AppHeader>
         <h1>Audio Processing App</h1>
-      </header>
-      <main>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="audioFile">Upload Audio File (wav, mp3, flac):</label>
-            <input
-              type="file"
-              id="audioFile"
-              accept=".wav,.mp3,.flac"
-              onChange={handleFileChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="denoiseStrength">Denoising Strength: {denoiseStrength.toFixed(2)}</label>
-            <input
-              type="range"
-              id="denoiseStrength"
-              min="0"
-              max="1"
-              step="0.01"
-              value={denoiseStrength}
-              onChange={handleStrengthChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="outputFormat">Output Format:</label>
-            <select id="outputFormat" value={outputFormat} onChange={handleFormatChange}>
-              {SUPPORTED_OUTPUT_FORMATS.map(format => (
-                <option key={format} value={format}>{format.toUpperCase()}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* --- EQ Controls --- */}
-          <fieldset className="form-group">
-            <legend>Equalizer Settings (Vocal Focus)</legend>
-            <div className="form-group">
-              <label htmlFor="eqLowCutGain">Low Cut (100Hz Gain): {eqLowCutGain} dB</label>
-              <input
-                type="range"
-                id="eqLowCutGain"
-                min="-24"
-                max="0"
-                step="1"
-                value={eqLowCutGain}
-                onChange={(e) => setEqLowCutGain(parseFloat(e.target.value))}
+      </AppHeader>
+      <MainContent>
+        <StyledForm onSubmit={handleSubmit}>
+          <TwoColumnFormLayout>
+            <div> {/* Column 1 */}
+              <FileUpload
+                onFileChange={handleFileChange}
+                selectedFile={selectedFile}
+                isLoading={isLoading}
               />
             </div>
-            <div className="form-group">
-              <label htmlFor="eqClarityGain">Vocal Clarity (2.5kHz Gain): {eqClarityGain} dB</label>
-              <input
-                type="range"
-                id="eqClarityGain"
-                min="-6"
-                max="6"
-                step="0.5"
-                value={eqClarityGain}
-                onChange={(e) => setEqClarityGain(parseFloat(e.target.value))}
+            <div> {/* Column 2 */}
+              <AudioControls
+                denoiseStrength={denoiseStrength}
+                onDenoiseStrengthChange={(e) => setDenoiseStrength(parseFloat(e.target.value))}
+                outputFormat={outputFormat}
+                onOutputFormatChange={(e) => setOutputFormat(e.target.value)}
+                supportedFormats={SUPPORTED_OUTPUT_FORMATS}
+                // Old EQ props removed
+                eqBands={eqBands} // New dynamic EQ prop
+                onAddEqBand={handleAddEqBand} // New dynamic EQ prop
+                onRemoveEqBand={handleRemoveEqBand} // New dynamic EQ prop
+                onUpdateEqBand={handleUpdateEqBand} // New dynamic EQ prop
+                applyNormalization={applyNormalization}
+                onApplyNormalizationChange={(e) => setApplyNormalization(e.target.checked)}
+                requestWaveform={requestWaveform}
+                onRequestWaveformChange={(e) => setRequestWaveform(e.target.checked)}
+                isLoading={isLoading}
               />
             </div>
-            <div className="form-group">
-              <label htmlFor="eqPresenceGain">Presence/Sibilance (5kHz Gain): {eqPresenceGain} dB</label>
-              <input
-                type="range"
-                id="eqPresenceGain"
-                min="-6"
-                max="6"
-                step="0.5"
-                value={eqPresenceGain}
-                onChange={(e) => setEqPresenceGain(parseFloat(e.target.value))}
-              />
-            </div>
-          </fieldset>
+          </TwoColumnFormLayout>
 
-          {/* --- Normalization Control --- */}
-          <div className="form-group">
-            <label htmlFor="applyNormalization">
-              <input
-                type="checkbox"
-                id="applyNormalization"
-                checked={applyNormalization}
-                onChange={(e) => setApplyNormalization(e.target.checked)}
-              />
-              Apply Loudness Normalization (-23 LUFS)
-            </label>
-          </div>
-
-          {/* --- Request Waveform Control --- */}
-          <div className="form-group">
-            <label htmlFor="requestWaveform">
-              <input
-                type="checkbox"
-                id="requestWaveform"
-                checked={requestWaveform}
-                onChange={(e) => setRequestWaveform(e.target.checked)}
-              />
-              Display Waveforms
-            </label>
-          </div>
-
-
-          <button type="submit" disabled={isLoading || !selectedFile}>
+          <Button type="submit" disabled={isLoading || !selectedFile}>
             {isLoading ? 'Processing...' : 'Process Audio'}
-          </button>
-        </form>
+          </Button>
+        </StyledForm>
 
-        {error && (
-          <div className="error-message">
+        {/* {error && ( // This section is now removed
+          <ErrorMessage>
             <p>Error: {error}</p>
-          </div>
-        )}
+          </ErrorMessage>
+        )} */}
 
-        {/* --- Waveform Displays --- */}
         {requestWaveform && selectedFile && (
-          <div className="waveforms-section">
-            <WaveformDisplay data={originalWaveform} title="Original Waveform" />
-            <WaveformDisplay data={processedWaveform} title="Processed Waveform" />
-          </div>
+          <WaveformsSection>
+            <WaveformDisplay
+              data={originalWaveform}
+              title="Original Waveform"
+              audioDuration={audioDuration}
+              // onWaveformClick={handleWaveformSeek} // Or a different handler if original waveform should also seek
+            />
+            <WaveformDisplay
+              data={processedWaveform}
+              title="Processed Waveform"
+              audioDuration={audioDuration}
+              onWaveformClick={handleWaveformSeek}
+            />
+          </WaveformsSection>
         )}
 
-        {processedAudio && (
-          <div className="audio-player">
-            <h2>Processed Audio:</h2>
-            <audio controls src={processedAudio}>
-              Your browser does not support the audio element.
-            </audio>
-            <a href={processedAudio} download={downloadFilename}>
-              Download Processed Audio
-            </a>
-          </div>
-        )}
-      </main>
-    </div>
+        <AudioPlayer
+          processedAudio={processedAudio}
+          downloadFilename={downloadFilename}
+          audioRef={audioRef}
+          onLoadedMetadata={handleLoadedMetadata}
+        />
+      </MainContent>
+    </AppContainer>
   );
 }
-
-// Simple Waveform Display Component
-const WaveformDisplay = ({ data, title, width = 300, height = 100 }) => {
-  const canvasRef = React.useRef(null);
-
-  useEffect(() => {
-    if (canvasRef.current && data && data.length > 0) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, width, height); // Clear canvas
-
-      ctx.fillStyle = '#ddd'; // Background
-      ctx.fillRect(0, 0, width, height);
-
-      ctx.strokeStyle = '#007bff'; // Waveform color
-      ctx.lineWidth = 1;
-
-      const step = width / data.length;
-      const middle = height / 2;
-
-      ctx.beginPath();
-      ctx.moveTo(0, middle);
-
-      data.forEach((val, i) => {
-        // Assuming data is normalized 0-1 (peak value)
-        // We'll draw it symmetrically around the middle line
-        const yTop = middle - (val * middle);
-        const yBottom = middle + (val * middle);
-
-        // For a simple peak envelope:
-        ctx.lineTo(i * step, yTop);
-        // then move to bottom and back to middle for next point to create the filled envelope look
-      });
-      // Draw the top envelope
-      ctx.stroke();
-
-      // Draw the bottom envelope (mirrored)
-      ctx.beginPath();
-      ctx.moveTo(0, middle);
-      data.forEach((val, i) => {
-         const yBottom = middle + (val * middle);
-         ctx.lineTo(i * step, yBottom);
-      });
-      ctx.stroke();
-
-
-    } else if (canvasRef.current) {
-      // Clear canvas if no data
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = '#f0f0f0';
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = '#aaa';
-      ctx.textAlign = 'center';
-      ctx.fillText('No waveform data', width / 2, height / 2);
-    }
-  }, [data, width, height]);
-
-  return (
-    <div className="waveform-container">
-      <h4>{title}</h4>
-      <canvas ref={canvasRef} width={width} height={height} />
-    </div>
-  );
-};
 
 export default App;

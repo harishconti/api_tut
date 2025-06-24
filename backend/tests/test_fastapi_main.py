@@ -22,35 +22,13 @@ from unittest.mock import patch, MagicMock
 # If Connector is used like `google.cloud.sql.connector.Connector`, this is the target.
 # If it's `from google.cloud.sql.connector import Connector` then `Connector` in that module's namespace.
 # The error trace shows `google.cloud.sql.connector.connector.py` and `Connector()`.
-# So the import in db_reader.py is likely `from google.cloud.sql.connector import Connector`
-# and then it calls `Connector()`. We need to patch `Connector` in `backend.modules.db_reader`.
+# So the import in db_reader.py is likely `from google.cloud.sql.connector import Connector` (this module is now removed)
+# and then it calls `Connector()`. We need to patch `Connector` in `backend.modules.db_reader`. (this module is now removed)
 
-mock_connector_instance = MagicMock()
-mock_connector_instance.connect = MagicMock() # Mock the connect method if it's called
-
-# Patching 'backend.modules.db_reader.Connector' because db_reader.py is where 'Connector()' is called.
-# This assumes an import style like `from google.cloud.sql.connector import Connector` in db_reader.py
-@patch('backend.modules.db_reader.Connector', return_value=mock_connector_instance)
-def setup_google_auth_mock(mock_connector_class):
-    # This function is mainly to encapsulate the patch decorator.
-    # The actual app import will happen after this module is loaded and patched.
-    # We need to ensure the patch is active when `from backend.fastapi_main import app` runs.
-    # Pytest fixtures or conftest.py are better for managing this, but for a single file:
-    # The patch will be active for the duration of the 'setup_google_auth_mock' function's scope
-    # if it were called. But we need it active when 'app' is imported.
-    # A simpler way for this file:
-    pass # The decorator itself does the job if applied to a test or fixture.
-
-# The above approach with a function might not work as intended for module-level import.
-# A more direct way to ensure the patch is active *before* app import:
-# Use a fixture in conftest.py or apply patch in each test function that needs it,
-# or patch globally before app import if tests are run in a way that this module is loaded first.
-
-# For now, let's assume this test file is processed, and the patch is applied before the app import.
-# This is often tricky. A fixture in conftest.py is the most robust.
-#
-# The Google Cloud SQL Connector is now mocked via backend/tests/conftest.py
-# This ensures the mock is active before this module (and thus app) is imported.
+# The Google Cloud SQL Connector and related local patches are no longer needed
+# as db_reader.py has been removed.
+# Global mocks for google.auth.default and potentially Connector (if used by other libs)
+# are handled in conftest.py.
 
 import soundfile as sf
 import numpy as np
@@ -66,8 +44,19 @@ from backend.audio_utils import SUPPORTED_AUDIO_FORMATS
 client = TestClient(app)
 
 # Helper to create a dummy wav file in-memory
-def create_dummy_wav_file(filename="test.wav", duration=1, sr=16000):
-    data = np.random.randn(duration * sr)
+def create_dummy_wav_file(filename="test.wav", duration=1, sr=16000, channels=1):
+    if channels == 1:
+        data = np.random.randn(duration * sr)
+    elif channels == 2:
+        data = np.random.randn(duration * sr, 2)
+    else:
+        raise ValueError("Unsupported number of channels for dummy wav creator")
+
+    # Normalize to prevent clipping before writing to PCM
+    max_val = np.max(np.abs(data))
+    if max_val > 0:
+        data = data / max_val * 0.98
+
     buffer = io.BytesIO()
     sf.write(buffer, data, sr, format='wav', subtype='PCM_16')
     buffer.seek(0)
@@ -382,3 +371,33 @@ def test_process_audio_all_features_no_waveform_request(default_wav_upload):
         data, sr = sf.read(audio_buffer)
         assert isinstance(data, np.ndarray)
         assert sr == 16000
+
+# --- Tests for Stereo Processing ---
+def test_process_stereo_audio_preserves_channels():
+    """
+    Tests that processing a stereo input file results in a stereo output file
+    when denoising and other compatible operations are applied.
+    """
+    stereo_upload = create_dummy_wav_file(filename="stereo_in.wav", channels=2, sr=44100)
+
+    response = client.post(
+        "/process/",
+        files=stereo_upload,
+        data={
+            "denoise_strength": "0.2", # Apply some denoising
+            "output_format": "wav",
+            "apply_normalization": "True",
+            # Not requesting waveform, so we get a file stream back
+        }
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert "attachment; filename=processed_stereo_in.wav" in response.headers["content-disposition"]
+
+    # Read the processed audio from response
+    with io.BytesIO(response.content) as audio_buffer:
+        processed_data, sr = sf.read(audio_buffer, always_2d=True) # always_2d=True to simplify channel check
+        assert isinstance(processed_data, np.ndarray)
+        assert sr == 44100
+        assert processed_data.ndim == 2, "Processed audio should be stereo (2 dimensions)"
+        assert processed_data.shape[1] == 2, "Processed audio should have 2 channels"
