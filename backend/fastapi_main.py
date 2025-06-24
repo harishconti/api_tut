@@ -11,12 +11,13 @@ from typing import Optional, List, Dict, Any # Added for type hinting
 # from .modules.db_reader import query_df
 
 from .audio_utils import (
-    denoise_audio,
+    # denoise_audio, # No longer called directly
     load_audio_from_uploadfile,
     save_audio_to_bytesio,
-    apply_equalizer,
-    normalize_audio_loudness,
+    # apply_equalizer, # No longer called directly
+    # normalize_audio_loudness, # No longer called directly
     generate_waveform_data,
+    process_audio_pipeline, # New main processing function
     SUPPORTED_AUDIO_FORMATS
 )
 
@@ -50,11 +51,19 @@ async def process_audio_endpoint(
     output_format: str = Form("wav", description=f"Desired output format. Supported: {', '.join(SUPPORTED_AUDIO_FORMATS)}"),
     eq_bands_json: Optional[str] = Form(None, description='JSON string of EQ bands. E.g., \'[{"freq": 1000, "gain": 3, "q": 1.0}]\''),
     apply_normalization: bool = Form(False, description="Apply loudness normalization (EBU R128 to -23 LUFS)"),
-    request_waveform: bool = Form(False, description="Return waveform data for original and processed audio")
+    request_waveform: bool = Form(False, description="Return waveform data for original and processed audio"),
+    trim_silence: bool = Form(False, description="Automatically trim leading/trailing silence"),
+    compressor_threshold: Optional[float] = Form(None, description="Compressor threshold in dBFS (e.g., -20.0)"),
+    compressor_ratio: Optional[float] = Form(None, description="Compressor ratio (e.g., 4.0 for 4:1)"),
+    compressor_attack: Optional[float] = Form(None, description="Compressor attack time in ms (e.g., 5.0)"),
+    compressor_release: Optional[float] = Form(None, description="Compressor release time in ms (e.g., 50.0)"),
+    reverb_room_size: Optional[float] = Form(None, description="Reverb room size (0.0 to 1.0)"),
+    reverb_wet_dry_mix: Optional[float] = Form(None, description="Reverb wet/dry mix (0.0 for dry, 1.0 for wet)")
 ):
     """
     Processes an audio file with options for denoising, equalization, normalization,
-    and returns the processed audio. Optionally includes waveform data.
+    compression, reverb, silence trimming, and returns the processed audio.
+    Optionally includes waveform data.
     """
     audio_data, sample_rate, error = await load_audio_from_uploadfile(file)
 
@@ -67,52 +76,50 @@ async def process_audio_endpoint(
     if request_waveform:
         original_waveform_data = generate_waveform_data(audio_data, sample_rate)
 
-    # Start with original audio data for processing
-    processed_data = audio_data.copy() # Make a copy for processing
-
-    # Determine number of channels from the loaded audio_data
-    if processed_data.ndim == 1:
-        num_channels = 1
-    elif processed_data.ndim == 2:
-        num_channels = processed_data.shape[1]
-    else:
-        # This case should ideally not be reached if sf.read(always_2d=False) works as expected
-        raise HTTPException(status_code=500, detail="Unsupported audio data shape after loading.")
-
-    # Store original channel count for potential reconstruction if denoising alters it
-    original_num_channels = num_channels
-
-    # 1. Denoising (if strength > 0)
-    if denoise_strength > 0.0: # Only apply if strength is meaningful
-        processed_data = denoise_audio(processed_data, sample_rate, strength=denoise_strength)
-        # denoise_audio might change channel count (e.g. stereo to mono).
-        # Update num_channels based on the output of denoise_audio for subsequent steps.
-        if processed_data.ndim == 1:
-            num_channels = 1
-        elif processed_data.ndim == 2:
-            num_channels = processed_data.shape[1]
-
-
-    # 2. Equalization
-    # Apply EQ using the current number of channels of processed_data
+    # Prepare parameters for the pipeline
+    eq_bands_list: Optional[List[Dict[str, Any]]] = None
     if eq_bands_json:
         try:
-            eq_bands: List[Dict[str, Any]] = json.loads(eq_bands_json)
-            if eq_bands: # Only apply if there are bands defined
-                # Pass the current num_channels of processed_data to apply_equalizer
-                processed_data = apply_equalizer(processed_data, sample_rate, eq_bands, channels=num_channels)
+            eq_bands_list = json.loads(eq_bands_json)
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid JSON format for EQ bands.")
-        except Exception as e: # Catch errors from apply_equalizer
-            raise HTTPException(status_code=500, detail=f"Error applying equalizer: {str(e)}")
 
+    compressor_settings: Optional[Dict[str, float]] = None
+    if compressor_threshold is not None and \
+       compressor_ratio is not None and \
+       compressor_attack is not None and \
+       compressor_release is not None:
+        compressor_settings = {
+            "threshold": compressor_threshold,
+            "ratio": compressor_ratio,
+            "attack": compressor_attack,
+            "release": compressor_release
+        }
 
-    # 3. Normalization
-    if apply_normalization:
-        try:
-            processed_data = normalize_audio_loudness(processed_data, sample_rate)
-        except Exception as e: # Catch errors from normalize_audio_loudness
-            raise HTTPException(status_code=500, detail=f"Error applying normalization: {str(e)}")
+    reverb_settings: Optional[Dict[str, float]] = None
+    if reverb_room_size is not None and reverb_wet_dry_mix is not None:
+        reverb_settings = {
+            "room_size": reverb_room_size,
+            "wet_dry_mix": reverb_wet_dry_mix
+        }
+
+    try:
+        processed_data = process_audio_pipeline(
+            audio_data=audio_data,
+            sample_rate=sample_rate,
+            denoise_strength_param=denoise_strength,
+            eq_bands_param=eq_bands_list,
+            apply_normalization_param=apply_normalization,
+            trim_silence_param=trim_silence,
+            compressor_params=compressor_settings,
+            reverb_params=reverb_settings
+        )
+    except ValueError as ve: # Catch specific ValueErrors from pipeline (e.g. bad audio shape)
+        raise HTTPException(status_code=400, detail=f"Audio processing error: {str(ve)}")
+    except Exception as e: # Catch other generic errors from pipeline
+        # Log the full error for debugging on the server
+        print(f"Unhandled error in process_audio_pipeline: {e}") # Or use proper logging
+        raise HTTPException(status_code=500, detail=f"Error during audio processing: {str(e)}")
 
 
     # Validate output_format
@@ -141,8 +148,11 @@ async def process_audio_endpoint(
             "original_waveform": original_waveform_data,
             "processed_waveform": processed_waveform_data,
             "denoise_strength_applied": denoise_strength,
-            "eq_bands_applied": json.loads(eq_bands_json) if eq_bands_json else None,
-            "normalization_applied": apply_normalization
+            "eq_bands_applied": eq_bands_list if eq_bands_list else None, # Use parsed list
+            "normalization_applied": apply_normalization,
+            "trim_silence_applied": trim_silence,
+            "compressor_settings_applied": compressor_settings,
+            "reverb_settings_applied": reverb_settings
         })
     else:
         audio_buffer = save_audio_to_bytesio(processed_data, sample_rate, format=requested_format)
