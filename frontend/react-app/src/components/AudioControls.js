@@ -1,5 +1,5 @@
 import React from 'react';
-import { FormGroup, Fieldset, TwoColumnFormLayout, ControlGroupWrapper, Button } from '../styles/App.styles'; // Added Button
+import { FormGroup, Fieldset, Button, EQBandControlsGrid } from '../styles/App.styles'; // Removed TwoColumnFormLayout, ControlGroupWrapper. Added EQBandControlsGrid
 import styled from 'styled-components';
 
 // Styled for individual EQ band controls
@@ -39,11 +39,7 @@ const SmallButton = styled(Button)` // Inherits from main Button but smaller
 
 
 const AudioControls = ({
-  denoiseStrength, onDenoiseStrengthChange,
-  outputFormat, onOutputFormatChange, supportedFormats,
   eqBands, onAddEqBand, onRemoveEqBand, onUpdateEqBand, // Dynamic EQ props
-  applyNormalization, onApplyNormalizationChange,
-  requestWaveform, onRequestWaveformChange,
   isLoading
 }) => {
 
@@ -61,67 +57,21 @@ const AudioControls = ({
   };
 
   return (
-    <TwoColumnFormLayout>
-      <ControlGroupWrapper> {/* Column 1 for general controls */}
-        <FormGroup>
-          <label htmlFor="denoiseStrength">Denoising Strength: {denoiseStrength.toFixed(2)}</label>
-          <input
-            type="range"
-            id="denoiseStrength"
-            min="0"
-            max="1"
-            step="0.01"
-            value={denoiseStrength}
-            onChange={onDenoiseStrengthChange}
-            disabled={isLoading}
-          />
-        </FormGroup>
+    // <TwoColumnFormLayout> // This component no longer needs TwoColumnFormLayout
+    // The AudioControls component will now render directly into the RightColumn of App.js
+    // We can use a single ControlGroupWrapper or directly a Fieldset if that's all that's left.
+    // For now, let's assume it will be wrapped in a way that fits the RightColumn.
+    // If AudioControls itself needs internal columns for EQ bands, that would be a separate layout.
+    // Based on the plan, the EQ bands themselves will have horizontal controls,
+    // but the overall AudioControls component will just be the list of bands.
 
-        <FormGroup>
-          <label htmlFor="outputFormat">Output Format:</label>
-          <select
-            id="outputFormat"
-            value={outputFormat}
-            onChange={onOutputFormatChange}
-            disabled={isLoading}
-          >
-            {supportedFormats.map(format => (
-              <option key={format} value={format}>{format.toUpperCase()}</option>
-            ))}
-          </select>
-        </FormGroup>
+    // <ControlGroupWrapper> // Column 1 for general controls -- REMOVED
+    // </ControlGroupWrapper>
 
-        <FormGroup>
-          <label htmlFor="applyNormalization">
-            <input
-              type="checkbox"
-              id="applyNormalization"
-              checked={applyNormalization}
-              onChange={onApplyNormalizationChange}
-              disabled={isLoading}
-            />
-            Apply Loudness Normalization (-23 LUFS)
-          </label>
-        </FormGroup>
-
-        <FormGroup>
-          <label htmlFor="requestWaveform">
-            <input
-              type="checkbox"
-              id="requestWaveform"
-              checked={requestWaveform}
-              onChange={onRequestWaveformChange}
-              disabled={isLoading}
-            />
-            Display Waveforms
-          </label>
-        </FormGroup>
-      </ControlGroupWrapper>
-
-      <ControlGroupWrapper> {/* Column 2 for EQ */}
-        <Fieldset>
-          <legend>Dynamic Equalizer</legend>
-          {eqBands.map(band => {
+    // <ControlGroupWrapper> {/* Column 2 for EQ - Now the main content */}
+    <Fieldset> {/* Using Fieldset directly as the main container for EQ controls */}
+      <legend>Dynamic Equalizer</legend>
+      {eqBands.map(band => {
             const gainAttrs = getGainAttributes(band.type);
             return (
               <EQBandControl key={band.id}>
@@ -152,65 +102,66 @@ const AudioControls = ({
                     )}
                   </div>
                 </EQBandHeader>
-                {/* Optionally wrap controls in a div that can be visually disabled if band.enabled is false */}
                 <div style={{ opacity: band.enabled ? 1 : 0.5, pointerEvents: band.enabled ? 'auto' : 'none' }}>
-                  <FormGroup>
-                    <label htmlFor={`eqFreq-${band.id}`}>Frequency (Hz): {band.freq}</label>
-                  <input
-                    type="number" // Using number for more direct input, could be range
-                    id={`eqFreq-${band.id}`}
-                    data-testid={`eqFreq-${band.id}`}
-                    min="20"
-                    max="20000"
-                    step="1"
-                    value={band.freq}
-                    onChange={(e) => handleBandChange(band.id, 'freq', e.target.value)}
-                    disabled={isLoading || !band.editable}
-                  />
-                </FormGroup>
-                <FormGroup>
-                  <label htmlFor={`eqGain-${band.id}`}>Gain (dB): {band.gain}</label>
-                  <input
-                    type="range"
-                    id={`eqGain-${band.id}`}
-                    data-testid={`eqGain-${band.id}`}
-                    min={gainAttrs.min}
-                    max={gainAttrs.max}
-                    step={gainAttrs.step}
-                    value={band.gain}
-                    onChange={(e) => handleBandChange(band.id, 'gain', e.target.value)}
-                    disabled={isLoading || !band.editable}
-                  />
-                </FormGroup>
-                <FormGroup>
-                  <label htmlFor={`eqQ-${band.id}`}>Q Factor: {band.q.toFixed(1)}</label>
-                  <input
-                    type="range"
-                    id={`eqQ-${band.id}`}
-                    data-testid={`eqQ-${band.id}`}
-                    min="0.1"
-                    max="10"
-                    step="0.1"
-                    value={band.q}
-                    onChange={(e) => handleBandChange(band.id, 'q', e.target.value)}
-                    disabled={isLoading || !band.editable} // Q might not be editable for shelves
-                  />
-                </FormGroup>
-                 <FormGroup>
-                  <label htmlFor={`eqType-${band.id}`}>Type:</label>
-                  <select
-                    id={`eqType-${band.id}`}
-                    data-testid={`eqType-${band.id}`}
-                    value={band.type}
-                    onChange={(e) => handleBandChange(band.id, 'type', e.target.value)}
-                    disabled={isLoading || !band.editable}
-                  >
-                    <option value="peaking">Peaking</option>
-                    <option value="lowshelf">Low Shelf</option>
-                    <option value="highshelf">High Shelf</option>
-                    {/* Add other types like lowpass, highpass, notch if backend supports */}
-                  </select>
-                </FormGroup>
+                  <EQBandControlsGrid>
+                    <FormGroup>
+                      <label htmlFor={`eqFreq-${band.id}`}>Frequency (Hz): {band.freq}</label>
+                      <input
+                        type="number"
+                        id={`eqFreq-${band.id}`}
+                        data-testid={`eqFreq-${band.id}`}
+                        min="20"
+                        max="20000"
+                        step="1"
+                        value={band.freq}
+                        onChange={(e) => handleBandChange(band.id, 'freq', e.target.value)}
+                        disabled={isLoading || !band.editable}
+                      />
+                    </FormGroup>
+                    <FormGroup>
+                      <label htmlFor={`eqGain-${band.id}`}>Gain (dB): {band.gain}</label>
+                      <input
+                        type="range"
+                        id={`eqGain-${band.id}`}
+                        data-testid={`eqGain-${band.id}`}
+                        min={gainAttrs.min}
+                        max={gainAttrs.max}
+                        step={gainAttrs.step}
+                        value={band.gain}
+                        onChange={(e) => handleBandChange(band.id, 'gain', e.target.value)}
+                        disabled={isLoading || !band.editable}
+                      />
+                    </FormGroup>
+                    <FormGroup>
+                      <label htmlFor={`eqQ-${band.id}`}>Q Factor: {band.q.toFixed(1)}</label>
+                      <input
+                        type="range"
+                        id={`eqQ-${band.id}`}
+                        data-testid={`eqQ-${band.id}`}
+                        min="0.1"
+                        max="10"
+                        step="0.1"
+                        value={band.q}
+                        onChange={(e) => handleBandChange(band.id, 'q', e.target.value)}
+                        disabled={isLoading || !band.editable}
+                      />
+                    </FormGroup>
+                    <FormGroup>
+                      <label htmlFor={`eqType-${band.id}`}>Type:</label>
+                      <select
+                        id={`eqType-${band.id}`}
+                        data-testid={`eqType-${band.id}`}
+                        value={band.type}
+                        onChange={(e) => handleBandChange(band.id, 'type', e.target.value)}
+                        disabled={isLoading || !band.editable}
+                      >
+                        <option value="peaking">Peaking</option>
+                        <option value="lowshelf">Low Shelf</option>
+                        <option value="highshelf">High Shelf</option>
+                        {/* Add other types like lowpass, highpass, notch if backend supports */}
+                      </select>
+                    </FormGroup>
+                  </EQBandControlsGrid>
                 </div> {/* End of conditionally disabled div */}
               </EQBandControl>
             );
@@ -219,8 +170,8 @@ const AudioControls = ({
             Add EQ Band
           </Button>
         </Fieldset>
-      </ControlGroupWrapper>
-    </TwoColumnFormLayout>
+      // </ControlGroupWrapper> // Removed as Fieldset is now the main container
+    // </TwoColumnFormLayout> // Removed
   );
 };
 

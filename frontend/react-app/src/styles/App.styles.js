@@ -22,6 +22,34 @@ export const AppHeader = styled.header`
   }
 `;
 
+export const EQBandControlsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); /* Responsive grid */
+  gap: 15px; /* Gap between controls */
+  align-items: end; /* Align items to the bottom of their grid cell, useful for labels above inputs */
+
+  /* If you want to specifically target FormGroup within this grid for layout adjustments */
+  & > ${FormGroup} {
+    margin-bottom: 0; /* Remove default bottom margin from FormGroup if it's too much in grid */
+    display: flex; /* Allow label and input to be stacked if needed */
+    flex-direction: column;
+    justify-content: flex-end; /* Aligns content to bottom, useful if heights vary */
+  }
+
+   /* Adjust label styling if necessary for grid layout */
+  label {
+    font-size: 0.9em; /* Slightly smaller labels for compact layout */
+    margin-bottom: 4px; /* Reduced space between label and input */
+  }
+
+  input[type="number"],
+  input[type="range"],
+  select {
+    padding: 8px; /* Slightly reduced padding for compactness */
+    font-size: 0.9em;
+  }
+`;
+
 export const MainContent = styled.main`
   background-color: #ffffff; /* White background for content area */
   padding: 30px;
@@ -49,6 +77,74 @@ export const TwoColumnFormLayout = styled.div`
     min-width: 0; /* Prevent flex overflow issues */
   }
 `;
+
+export const MainAppLayout = styled.div`
+  display: flex;
+  gap: 30px; /* Space between main columns */
+  margin-bottom: 30px; /* Space before results section */
+
+  @media (max-width: 768px) {
+    flex-direction: column; /* Stack columns on smaller screens */
+  }
+`;
+
+export const LeftColumn = styled.div`
+  flex: 1; /* Adjust flex basis as needed, e.g., flex: 0 0 300px; for fixed width */
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+`;
+
+export const RightColumn = styled.div`
+  flex: 2; /* Adjust flex basis as needed */
+`;
+
+export const SettingsCardContainer = styled.div`
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+
+  h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 1.2rem;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 10px;
+  }
+`;
+
+
+export const ResultsSection = styled.div`
+  margin-top: 30px;
+  padding: 20px;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+
+  h2 {
+    margin-top: 0;
+    color: #333;
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+`;
+
+export const WaveformsDisplayLayout = styled.div`
+  display: flex;
+  justify-content: space-around;
+  gap: 20px;
+  margin-bottom: 20px; /* Space before audio player */
+
+  @media (max-width: 600px) {
+    flex-direction: column;
+  }
+`;
+
 
 export const ControlGroupWrapper = styled.div`
   /* This can be used to group controls if needed, for now, it's a simple div */
@@ -113,7 +209,7 @@ export const Fieldset = styled.fieldset`
   border: 1px solid #ddd;
   padding: 20px;
   border-radius: 8px;
-  margin-bottom: 20px;
+  /* margin-bottom: 20px; */ /* Removed for better control by parent layout */
 
   legend {
     padding: 0 10px;
@@ -145,7 +241,7 @@ export const Button = styled.button`
 
 // Specific component styles - can be moved to their own files if they grow
 export const StyledAudioPlayer = styled.div`
-  margin-top: 30px;
+  /* margin-top: 30px; */ /* Removed, as ResultsSection and WaveformsDisplayLayout handle spacing */
   padding: 20px;
   background-color: #ffffff; /* Consistent with Waveform container cards */
   border: 1px solid #e0e0e0; /* Consistent with Waveform container cards */
