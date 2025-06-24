@@ -3,7 +3,9 @@ import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import FileUpload from './components/FileUpload';
 import AudioControls from './components/AudioControls';
-import SettingsCard from './components/SettingsCard'; // Import SettingsCard
+import SettingsCard from './components/SettingsCard';
+import CompressorControls from './components/CompressorControls';
+import ReverbControls from './components/ReverbControls'; // Import ReverbControls
 import AudioPlayer from './components/AudioPlayer';
 import WaveformDisplay from './components/WaveformDisplay';
 import { processAudio as processAudioAPI } from './api';
@@ -20,7 +22,10 @@ import {
   LeftColumn,
   RightColumn,
   ResultsSection,
-  WaveformsDisplayLayout
+  WaveformsDisplayLayout,
+  EffectsToolsSection, // Added
+  EffectToggleButton, // Added
+  FormGroup // Added
 } from './styles/App.styles';
 
 const SUPPORTED_OUTPUT_FORMATS = ["wav", "mp3", "flac"];
@@ -47,6 +52,24 @@ function App() {
   const [originalWaveform, setOriginalWaveform] = useState(null);
   const [processedWaveform, setProcessedWaveform] = useState(null);
   const [audioDuration, setAudioDuration] = useState(0); // For storing duration of processed audio
+
+  // States for new effects visibility
+  const [showEQ, setShowEQ] = useState(false);
+  const [showCompressor, setShowCompressor] = useState(false);
+  const [showReverb, setShowReverb] = useState(false);
+
+  // State for Silence Trimming
+  const [trimSilence, setTrimSilence] = useState(false);
+
+  // States for Compressor settings
+  const [compressorThreshold, setCompressorThreshold] = useState(-20); // dB
+  const [compressorRatio, setCompressorRatio] = useState(4); // ratio:1
+  const [compressorAttack, setCompressorAttack] = useState(5); // ms
+  const [compressorRelease, setCompressorRelease] = useState(50); // ms
+
+  // States for Reverb settings
+  const [reverbRoomSize, setReverbRoomSize] = useState(0.5); // 0-1
+  const [reverbWetDryMix, setReverbWetDryMix] = useState(0.3); // 0-1
 
   const audioRef = useRef(null); // Ref for the audio element
 
@@ -126,20 +149,35 @@ function App() {
     formData.append('output_format', outputFormat);
     formData.append('apply_normalization', String(applyNormalization));
     formData.append('request_waveform', String(requestWaveform));
+    formData.append('trim_silence', String(trimSilence));
 
-    // Construct EQ bands from the state
-    const activeEqBands = eqBands
-      .filter(band => band.enabled && (band.gain !== 0 || (band.type === 'lowshelf' && band.gain < 0) || (band.type === 'highshelf' && band.gain < 0)) ) // only include enabled bands that have an effect
-      .map(band => ({
-        // Ensure we don't send 'enabled', 'id', 'editable', 'removable', 'name' to backend if not needed
-        freq: band.freq,
-        gain: band.gain,
-        q: band.q,
-        type: band.type // Pass type to backend
-      }));
+    // Construct EQ bands from the state if EQ is shown and active bands exist
+    if (showEQ) {
+      const activeEqBands = eqBands
+        .filter(band => band.enabled && (band.gain !== 0 || (band.type === 'lowshelf' && band.gain < 0) || (band.type === 'highshelf' && band.gain < 0)) )
+        .map(band => ({
+          freq: band.freq,
+          gain: band.gain,
+          q: band.q,
+          type: band.type
+        }));
+      if (activeEqBands.length > 0) {
+        formData.append('eq_bands_json', JSON.stringify(activeEqBands));
+      }
+    }
 
-    if (activeEqBands.length > 0) {
-      formData.append('eq_bands_json', JSON.stringify(activeEqBands));
+    // Add Compressor settings if Compressor is shown
+    if (showCompressor) {
+      formData.append('compressor_threshold', compressorThreshold);
+      formData.append('compressor_ratio', compressorRatio);
+      formData.append('compressor_attack', compressorAttack);
+      formData.append('compressor_release', compressorRelease);
+    }
+
+    // Add Reverb settings if Reverb is shown
+    if (showReverb) {
+      formData.append('reverb_room_size', reverbRoomSize);
+      formData.append('reverb_wet_dry_mix', reverbWetDryMix);
     }
 
     try {
@@ -237,15 +275,81 @@ function App() {
                 onRequestWaveformChange={(e) => setRequestWaveform(e.target.checked)}
                 isLoading={isLoading}
               />
+              <EffectsToolsSection>
+                <h3>Effects & Tools</h3>
+                <div>
+                  <EffectToggleButton
+                    type="button"
+                    active={showEQ}
+                    onClick={() => setShowEQ(!showEQ)}
+                    disabled={isLoading}
+                  >
+                    Dynamic Equalizer
+                  </EffectToggleButton>
+                  <EffectToggleButton
+                    type="button"
+                    active={showCompressor}
+                    onClick={() => setShowCompressor(!showCompressor)}
+                    disabled={isLoading}
+                  >
+                    Compressor
+                  </EffectToggleButton>
+                  <EffectToggleButton
+                    type="button"
+                    active={showReverb}
+                    onClick={() => setShowReverb(!showReverb)}
+                    disabled={isLoading}
+                  >
+                    Reverb
+                  </EffectToggleButton>
+                </div>
+                <FormGroup style={{ marginTop: '20px' }}> {/* Using FormGroup for consistent styling of checkbox label */}
+                  <label htmlFor="trimSilence">
+                    <input
+                      type="checkbox"
+                      id="trimSilence"
+                      checked={trimSilence}
+                      onChange={(e) => setTrimSilence(e.target.checked)}
+                      disabled={isLoading}
+                    />
+                    Automatically Trim Silence
+                  </label>
+                </FormGroup>
+              </EffectsToolsSection>
             </LeftColumn>
             <RightColumn>
-              <AudioControls
-                eqBands={eqBands}
-                onAddEqBand={handleAddEqBand}
-                onRemoveEqBand={handleRemoveEqBand}
-                onUpdateEqBand={handleUpdateEqBand}
-                isLoading={isLoading}
-              />
+              {/* EQ, Compressor, Reverb controls will be conditionally rendered here */}
+              {showEQ && (
+                <AudioControls
+                  eqBands={eqBands}
+                  onAddEqBand={handleAddEqBand}
+                  onRemoveEqBand={handleRemoveEqBand}
+                  onUpdateEqBand={handleUpdateEqBand}
+                  isLoading={isLoading}
+                />
+              )}
+              {showCompressor && (
+                <CompressorControls
+                  threshold={compressorThreshold}
+                  onThresholdChange={(e) => setCompressorThreshold(parseFloat(e.target.value))}
+                  ratio={compressorRatio}
+                  onRatioChange={(e) => setCompressorRatio(parseFloat(e.target.value))}
+                  attack={compressorAttack}
+                  onAttackChange={(e) => setCompressorAttack(parseFloat(e.target.value))}
+                  release={compressorRelease}
+                  onReleaseChange={(e) => setCompressorRelease(parseFloat(e.target.value))}
+                  isLoading={isLoading}
+                />
+              )}
+              {showReverb && (
+                <ReverbControls
+                  roomSize={reverbRoomSize}
+                  onRoomSizeChange={(e) => setReverbRoomSize(parseFloat(e.target.value))}
+                  wetDryMix={reverbWetDryMix}
+                  onWetDryMixChange={(e) => setReverbWetDryMix(parseFloat(e.target.value))}
+                  isLoading={isLoading}
+                />
+              )}
             </RightColumn>
           </MainAppLayout>
         </StyledForm>
