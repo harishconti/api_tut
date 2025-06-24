@@ -38,7 +38,7 @@ export const StyledForm = styled.form`
 export const TwoColumnFormLayout = styled.div`
   display: flex;
   gap: 30px; /* Space between columns */
-  margin-bottom: 20px; /* Space before the submit button */
+  /* margin-bottom: 20px; /* Removed as submit button is now inside a column */
 
   @media (max-width: 768px) {
     flex-direction: column; /* Stack columns on smaller screens */
@@ -147,10 +147,10 @@ export const Button = styled.button`
 export const StyledAudioPlayer = styled.div`
   margin-top: 30px;
   padding: 20px;
-  background-color: #f9f9f9; /* Lighter background for player */
-  border: 1px solid #eee;
+  background-color: #ffffff; /* Consistent with Waveform container cards */
+  border: 1px solid #e0e0e0; /* Consistent with Waveform container cards */
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05); /* Consistent shadow */
 
   h2 {
     margin-top: 0;

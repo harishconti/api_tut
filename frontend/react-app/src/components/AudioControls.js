@@ -7,8 +7,14 @@ const EQBandControl = styled.div`
   border: 1px solid #e0e0e0;
   padding: 15px;
   margin-bottom: 15px;
-  border-radius: 6px;
-  background-color: #f9f9f9;
+  border-radius: 8px; /* Slightly more rounded */
+  background-color: #ffffff; /* White background for the card */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); /* Subtle shadow */
+  transition: box-shadow 0.2s ease-in-out;
+
+  &:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.07);
+  }
 `;
 
 const EQBandHeader = styled.h5`
@@ -18,6 +24,8 @@ const EQBandHeader = styled.h5`
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 1rem; /* Adjusted font size */
+  font-weight: bold; /* Make it bold */
 `;
 
 const SmallButton = styled(Button)` // Inherits from main Button but smaller
@@ -118,20 +126,36 @@ const AudioControls = ({
             return (
               <EQBandControl key={band.id}>
                 <EQBandHeader>
-                  {band.name || `Band ID: ${band.id}`}
-                  {band.removable && (
-                    <SmallButton
-                      type="button"
-                      onClick={() => onRemoveEqBand(band.id)}
-                      disabled={isLoading}
-                      data-testid={`remove-eq-${band.id}`}
-                    >
-                      Remove
-                    </SmallButton>
-                  )}
+                  <span>{band.name || `Band ID: ${band.id}`}</span>
+                  <div>
+                    <label htmlFor={`eqEnable-${band.id}`} style={{ marginRight: '10px', fontSize: '0.9em', fontWeight: 'normal' }}>
+                      On:
+                      <input
+                        type="checkbox"
+                        id={`eqEnable-${band.id}`}
+                        data-testid={`eqEnable-${band.id}`}
+                        checked={band.enabled}
+                        onChange={(e) => onUpdateEqBand(band.id, { enabled: e.target.checked })}
+                        disabled={isLoading || !band.editable}
+                        style={{ marginLeft: '5px', verticalAlign: 'middle' }}
+                      />
+                    </label>
+                    {band.removable && (
+                      <SmallButton
+                        type="button"
+                        onClick={() => onRemoveEqBand(band.id)}
+                        disabled={isLoading}
+                        data-testid={`remove-eq-${band.id}`}
+                      >
+                        Remove
+                      </SmallButton>
+                    )}
+                  </div>
                 </EQBandHeader>
-                <FormGroup>
-                  <label htmlFor={`eqFreq-${band.id}`}>Frequency (Hz): {band.freq}</label>
+                {/* Optionally wrap controls in a div that can be visually disabled if band.enabled is false */}
+                <div style={{ opacity: band.enabled ? 1 : 0.5, pointerEvents: band.enabled ? 'auto' : 'none' }}>
+                  <FormGroup>
+                    <label htmlFor={`eqFreq-${band.id}`}>Frequency (Hz): {band.freq}</label>
                   <input
                     type="number" // Using number for more direct input, could be range
                     id={`eqFreq-${band.id}`}
@@ -187,6 +211,7 @@ const AudioControls = ({
                     {/* Add other types like lowpass, highpass, notch if backend supports */}
                   </select>
                 </FormGroup>
+                </div> {/* End of conditionally disabled div */}
               </EQBandControl>
             );
           })}

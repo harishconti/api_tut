@@ -32,9 +32,9 @@ function App() {
   // const [eqClarityGain, setEqClarityGain] = useState(0); // Replaced by dynamic EQ bands
   // const [eqPresenceGain, setEqPresenceGain] = useState(0); // Replaced by dynamic EQ bands
   const [eqBands, setEqBands] = useState([ // Initial default bands
-    { id: 'lowcut', freq: 100, gain: 0, q: 0.7, type: 'lowshelf', editable: true, removable: false, name: "Low Cut" }, // Made it a shelf
-    { id: 'clarity', freq: 2500, gain: 0, q: 1.4, type: 'peaking', editable: true, removable: false, name: "Vocal Clarity" },
-    { id: 'presence', freq: 5000, gain: 0, q: 2.0, type: 'peaking', editable: true, removable: false, name: "Presence/Sibilance" }
+    { id: 'lowcut', freq: 100, gain: 0, q: 0.7, type: 'lowshelf', editable: true, removable: false, name: "Low Cut", enabled: true },
+    { id: 'clarity', freq: 2500, gain: 0, q: 1.4, type: 'peaking', editable: true, removable: false, name: "Vocal Clarity", enabled: true },
+    { id: 'presence', freq: 5000, gain: 0, q: 2.0, type: 'peaking', editable: true, removable: false, name: "Presence/Sibilance", enabled: true }
   ]);
   const [applyNormalization, setApplyNormalization] = useState(false);
   const [requestWaveform, setRequestWaveform] = useState(true);
@@ -56,6 +56,7 @@ function App() {
         type: 'peaking',
         editable: true,
         removable: true,
+        enabled: true, // New custom bands are enabled by default
         name: `Custom Band ${prevBands.filter(b => b.removable).length + 1}`
       }
     ]);
@@ -122,8 +123,9 @@ function App() {
 
     // Construct EQ bands from the state
     const activeEqBands = eqBands
-      .filter(band => band.gain !== 0 || (band.type === 'lowshelf' && band.gain < 0) || (band.type === 'highshelf' && band.gain < 0) ) // only include bands that have an effect
+      .filter(band => band.enabled && (band.gain !== 0 || (band.type === 'lowshelf' && band.gain < 0) || (band.type === 'highshelf' && band.gain < 0)) ) // only include enabled bands that have an effect
       .map(band => ({
+        // Ensure we don't send 'enabled', 'id', 'editable', 'removable', 'name' to backend if not needed
         freq: band.freq,
         gain: band.gain,
         q: band.q,
@@ -210,6 +212,14 @@ function App() {
                 selectedFile={selectedFile}
                 isLoading={isLoading}
               />
+              {/* Process Audio Button moved to the left column */}
+              <Button
+                type="submit"
+                disabled={isLoading || !selectedFile}
+                style={{ marginTop: '20px', width: '100%' }} // Added style for better placement
+              >
+                {isLoading ? 'Processing...' : 'Process Audio'}
+              </Button>
             </div>
             <div> {/* Column 2 */}
               <AudioControls
@@ -231,10 +241,6 @@ function App() {
               />
             </div>
           </TwoColumnFormLayout>
-
-          <Button type="submit" disabled={isLoading || !selectedFile}>
-            {isLoading ? 'Processing...' : 'Process Audio'}
-          </Button>
         </StyledForm>
 
         {/* {error && ( // This section is now removed

@@ -15,8 +15,8 @@ describe('AudioControls', () => {
     onOutputFormatChange: jest.fn(),
     supportedFormats: ['wav', 'mp3', 'flac'],
     eqBands: [
-      { id: 'b1', freq: 100, gain: 0, q: 0.7, type: 'lowshelf', editable: true, removable: false, name: "Low Cut" },
-      { id: 'b2', freq: 2500, gain: 0, q: 1.4, type: 'peaking', editable: true, removable: false, name: "Vocal Clarity" },
+      { id: 'b1', name: "Low Cut", freq: 100, gain: 0, q: 0.7, type: 'lowshelf', editable: true, removable: false, enabled: true },
+      { id: 'b2', name: "Vocal Clarity", freq: 2500, gain: 0, q: 1.4, type: 'peaking', editable: true, removable: false, enabled: true },
     ],
     onAddEqBand: jest.fn(),
     onRemoveEqBand: jest.fn(),
@@ -148,6 +148,7 @@ describe('AudioControls', () => {
 
     // Check that EQ band inputs are disabled
     mockProps.eqBands.forEach(band => {
+      expect(screen.getByTestId(`eqEnable-${band.id}`)).toBeDisabled(); // Toggle should also be disabled
       expect(screen.getByTestId(`eqFreq-${band.id}`)).toBeDisabled();
       expect(screen.getByTestId(`eqGain-${band.id}`)).toBeDisabled();
       expect(screen.getByTestId(`eqQ-${band.id}`)).toBeDisabled();
@@ -156,5 +157,46 @@ describe('AudioControls', () => {
         expect(screen.getByTestId(`remove-eq-${band.id}`)).toBeDisabled();
       }
     });
+  });
+
+  test('renders EQ band enable toggle and calls onUpdateEqBand on change', async () => {
+    const user = userEvent.setup();
+    render(<AudioControls {...mockProps} />);
+
+    const firstBand = mockProps.eqBands[0];
+    const toggleSwitch = screen.getByTestId(`eqEnable-${firstBand.id}`);
+
+    expect(toggleSwitch).toBeInTheDocument();
+    expect(toggleSwitch).toBeChecked(); // Default is enabled: true
+
+    await user.click(toggleSwitch);
+    expect(mockProps.onUpdateEqBand).toHaveBeenCalledWith(firstBand.id, { enabled: false });
+  });
+
+  test('EQ band controls are visually disabled and non-interactive when band.enabled is false', () => {
+    const propsWithDisabledBand = {
+      ...mockProps,
+      eqBands: [
+        { ...mockProps.eqBands[0], enabled: false }, // Disable first band
+        mockProps.eqBands[1],
+      ],
+    };
+    render(<AudioControls {...propsWithDisabledBand} />);
+
+    const firstBand = propsWithDisabledBand.eqBands[0];
+    const freqInput = screen.getByTestId(`eqFreq-${firstBand.id}`);
+    const gainInput = screen.getByTestId(`eqGain-${firstBand.id}`);
+    const qInput = screen.getByTestId(`eqQ-${firstBand.id}`);
+    const typeSelect = screen.getByTestId(`eqType-${firstBand.id}`);
+
+    // Check opacity and pointerEvents via parent div style
+    // The parent div of these form groups is the one with the style attribute
+    expect(freqInput.closest('div[style*="opacity: 0.5"]')).toBeInTheDocument();
+    expect(freqInput.closest('div[style*="pointer-events: none"]')).toBeInTheDocument();
+
+    // Inputs themselves might not be directly disabled by the opacity style,
+    // but their container makes them non-interactive.
+    // However, if they were directly disabled, we could check that too.
+    // For now, checking the wrapper style is sufficient to test the visual disabling.
   });
 });
