@@ -5,9 +5,11 @@ import numpy as np
 from fastapi import UploadFile
 import io
 from pydub import AudioSegment
-from pydub.scipy_effects import eq as pydub_eq # Changed from pydub.effects
+from pydub.effects import compress_dynamic
+from pydub.scipy_effects import eq as pydub_eq
 import pyloudnorm as pyln
-from typing import List, Dict, Any
+from pedalboard import Pedalboard, Reverb as PedalboardReverb # Alias to avoid confusion if we have other Reverb types
+from typing import List, Dict, Any, Optional
 
 SUPPORTED_AUDIO_FORMATS = ["wav", "mp3", "flac"]
 
@@ -371,3 +373,252 @@ def generate_waveform_data(audio_data: np.ndarray, sample_rate: int, points: int
     normalized_waveform = [p / max_peak for p in waveform_points]
 
     return normalized_waveform
+
+
+# --- New Effect Functions ---
+
+def trim_silence_from_audio(audio_data: np.ndarray, sample_rate: int, top_db: int = 20) -> np.ndarray:
+    """
+    Trims leading and trailing silence from an audio signal.
+
+    Args:
+        audio_data (np.ndarray): Input audio data.
+        sample_rate (int): Sample rate of the audio.
+        top_db (int): The threshold in dB below the peak to consider as silence.
+
+    Returns:
+        np.ndarray: Audio data with silence trimmed.
+    """
+    # librosa.effects.trim operates on mono data.
+    # If stereo, it should be applied per channel or convert to mono, trim, then potentially make stereo again (less ideal).
+    # For simplicity, if stereo, we'll trim based on the energy of a mono mix.
+    if audio_data.ndim > 1 and audio_data.shape[1] > 1: # Multi-channel
+        audio_mono_for_trimming = librosa.to_mono(audio_data.T) # librosa expects (channels, samples)
+        _, index = librosa.effects.trim(audio_mono_for_trimming, top_db=top_db)
+        return audio_data[index[0]:index[1]]
+    else: # Mono or (samples, 1)
+        y = audio_data.flatten() # Ensure 1D for librosa
+        trimmed_audio, index = librosa.effects.trim(y, top_db=top_db)
+        # If original was (samples, 1), restore that shape
+        if audio_data.ndim > 1 and audio_data.shape[1] == 1:
+            return trimmed_audio.reshape(-1, 1)
+        return trimmed_audio
+
+def apply_compressor(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    threshold: float,
+    ratio: float,
+    attack: float,
+    release: float,
+    channels: int
+) -> np.ndarray:
+    """
+    Applies dynamic range compression to audio data using pydub.
+
+    Args:
+        audio_data (np.ndarray): Input audio data (float, normalized).
+        sample_rate (int): Sample rate.
+        threshold (float): Compressor threshold in dBFS.
+        ratio (float): Compression ratio.
+        attack (float): Attack time in ms.
+        release (float): Release time in ms.
+        channels (int): Number of audio channels.
+
+    Returns:
+        np.ndarray: Compressed audio data (float, normalized).
+    """
+    if audio_data.dtype == np.float32 or audio_data.dtype == np.float64:
+        audio_data_int = (audio_data * 32767).astype(np.int16)
+    else:
+        audio_data_int = audio_data.astype(np.int16)
+
+    sound = AudioSegment(
+        data=audio_data_int.tobytes(),
+        sample_width=audio_data_int.dtype.itemsize,
+        frame_rate=sample_rate,
+        channels=channels
+    )
+
+    compressed_sound = compress_dynamic(
+        sound,
+        threshold=threshold,
+        ratio=ratio,
+        attack=attack,
+        release=release
+        # Pydub's compress_dynamic also has optional `normalize_gain` and `smoothing_window_ms`
+        # For now, using defaults.
+    )
+
+    samples = np.array(compressed_sound.get_array_of_samples())
+    if compressed_sound.channels > 1:
+        samples = samples.reshape((-1, compressed_sound.channels))
+
+    max_val = float(1 << (compressed_sound.sample_width * 8 - 1))
+    processed_audio_data = samples.astype(np.float32) / max_val
+    return processed_audio_data
+
+def apply_reverb_effect(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    room_size: float,
+    wet_dry_mix: float # This will be used to set wet_level and dry_level
+) -> np.ndarray:
+    """
+    Applies reverb to audio data using pedalboard.
+
+    Args:
+        audio_data (np.ndarray): Input audio data (float, normalized).
+        sample_rate (int): Sample rate.
+        room_size (float): Reverb room size (0-1).
+        wet_dry_mix (float): Wet/Dry mix (0 for full dry, 1 for full wet).
+
+    Returns:
+        np.ndarray: Audio data with reverb (float, normalized).
+    """
+    # pedalboard expects float32 data.
+    # Ensure audio_data is float32. If it's float64, convert.
+    if audio_data.dtype == np.float64:
+        audio_data_pb = audio_data.astype(np.float32)
+    elif audio_data.dtype != np.float32: # If int or other, convert and normalize
+        if np.issubdtype(audio_data.dtype, np.integer):
+            max_int_val = np.iinfo(audio_data.dtype).max
+            audio_data_pb = audio_data.astype(np.float32) / max_int_val
+        else:
+            audio_data_pb = audio_data.astype(np.float32) # Hope for the best
+    else:
+        audio_data_pb = audio_data
+
+    # Ensure data is (samples, channels) or (samples,) for pedalboard
+    # librosa.effects.trim might return 1D array, pedalboard is fine with that for mono.
+    # If stereo, it expects (num_frames, num_channels).
+    # Our pipeline generally maintains this shape or (num_frames,) for mono.
+
+    wet_level = wet_dry_mix
+    dry_level = 1.0 - wet_dry_mix
+
+    board = Pedalboard([
+        PedalboardReverb(
+            room_size=room_size,
+            wet_level=wet_level,
+            dry_level=dry_level
+            # Other Reverb params like damping, width can be exposed if needed
+        )
+    ])
+
+    # Pedalboard processes in chunks by default, which is good for memory.
+    # It can handle mono (1D array) or stereo (2D array, samples x channels).
+    effected_audio = board(audio_data_pb, sample_rate)
+
+    # Ensure output is also float32, normalized. Pedalboard should maintain this.
+    # And ensure shape consistency if pedalboard modified it unexpectedly (unlikely for this effect)
+    if effected_audio.shape != audio_data_pb.shape and effected_audio.size == audio_data_pb.size:
+         # This is a safeguard, pedalboard usually preserves shape or returns (samples, channels)
+         if audio_data_pb.ndim == 1 and effected_audio.ndim == 2 and effected_audio.shape[1] == 1:
+             effected_audio = effected_audio.flatten() # Back to 1D if it became (samples, 1)
+         # Add other shape corrections if necessary based on observed behavior
+
+    return effected_audio.astype(np.float32) # Ensure float32
+
+
+def process_audio_pipeline(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    denoise_strength_param: float,
+    eq_bands_param: Optional[List[Dict[str, Any]]],
+    apply_normalization_param: bool,
+    trim_silence_param: bool,
+    compressor_params: Optional[Dict[str, float]],
+    reverb_params: Optional[Dict[str, float]]
+) -> np.ndarray:
+    """
+    Main audio processing pipeline. Applies effects in a specific order.
+    """
+    processed_data = audio_data.copy()
+
+    # Determine initial number of channels
+    if processed_data.ndim == 1:
+        current_channels = 1
+    elif processed_data.ndim == 2:
+        current_channels = processed_data.shape[1]
+        if current_channels == 0:
+            raise ValueError("Initial audio data has zero channels.")
+        if current_channels == 1 and processed_data.shape[0] > 0: # (samples, 1)
+             processed_data = processed_data.flatten() # Convert to 1D
+             current_channels = 1
+    else:
+        raise ValueError(f"Unsupported initial audio data dimensions: {processed_data.ndim}")
+
+
+    # 1. Silence Trimming (if requested)
+    if trim_silence_param:
+        processed_data = trim_silence_from_audio(processed_data, sample_rate)
+        # Update channels after trimming, as librosa.effects.trim might return 1D for mono
+        if processed_data.ndim == 1:
+            current_channels = 1
+        elif processed_data.ndim == 2:
+            current_channels = processed_data.shape[1]
+        if current_channels == 0 and processed_data.size > 0: # Should not happen if trim returns valid audio
+            raise ValueError("Audio data has zero channels after trimming.")
+        if processed_data.size == 0: # If trimming resulted in empty audio
+            # Return as is, or handle as an error/warning. For now, return empty.
+            return processed_data
+
+
+    # 2. Denoising (if strength > 0)
+    if denoise_strength_param > 0.0:
+        processed_data = denoise_audio(processed_data, sample_rate, strength=denoise_strength_param)
+        # Update channels after denoising
+        if processed_data.ndim == 1:
+            current_channels = 1
+        elif processed_data.ndim == 2:
+            current_channels = processed_data.shape[1]
+
+
+    # 3. Equalization (if bands are provided)
+    if eq_bands_param:
+        processed_data = apply_equalizer(processed_data, sample_rate, eq_bands_param, channels=current_channels)
+        # EQ should maintain channel count if implemented correctly based on input `channels`
+        if processed_data.ndim == 1: # Recalculate just in case
+            current_channels = 1
+        elif processed_data.ndim == 2:
+            current_channels = processed_data.shape[1]
+
+
+    # 4. Compressor (if params are provided)
+    if compressor_params:
+        processed_data = apply_compressor(
+            processed_data,
+            sample_rate,
+            threshold=compressor_params["threshold"],
+            ratio=compressor_params["ratio"],
+            attack=compressor_params["attack"],
+            release=compressor_params["release"],
+            channels=current_channels
+        )
+        # Compressor should maintain channel count
+        if processed_data.ndim == 1:
+            current_channels = 1
+        elif processed_data.ndim == 2:
+            current_channels = processed_data.shape[1]
+
+    # 5. Reverb (if params are provided)
+    if reverb_params:
+        processed_data = apply_reverb_effect(
+            processed_data,
+            sample_rate,
+            room_size=reverb_params["room_size"],
+            wet_dry_mix=reverb_params["wet_dry_mix"]
+        )
+        # Reverb (pedalboard) should maintain channel count / float32 format
+        if processed_data.ndim == 1:
+            current_channels = 1
+        elif processed_data.ndim == 2:
+            current_channels = processed_data.shape[1]
+
+    # 6. Normalization (if requested)
+    if apply_normalization_param:
+        processed_data = normalize_audio_loudness(processed_data, sample_rate)
+        # Normalization should maintain channel count
+
+    return processed_data
