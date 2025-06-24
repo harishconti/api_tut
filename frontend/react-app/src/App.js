@@ -3,6 +3,7 @@ import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import FileUpload from './components/FileUpload';
 import AudioControls from './components/AudioControls';
+import SettingsCard from './components/SettingsCard'; // Import SettingsCard
 import AudioPlayer from './components/AudioPlayer';
 import WaveformDisplay from './components/WaveformDisplay';
 import { processAudio as processAudioAPI } from './api';
@@ -11,10 +12,15 @@ import {
   AppHeader,
   MainContent,
   StyledForm,
-  TwoColumnFormLayout, // Import new layout component
-  ErrorMessage,
-  WaveformsSection,
-  Button
+  // TwoColumnFormLayout, // No longer used directly here, layout handled by MainAppLayout
+  // ErrorMessage, // Replaced by toast
+  // WaveformsSection, // Will be replaced by ResultsSection and WaveformsDisplayLayout
+  Button,
+  MainAppLayout,
+  LeftColumn,
+  RightColumn,
+  ResultsSection,
+  WaveformsDisplayLayout
 } from './styles/App.styles';
 
 const SUPPORTED_OUTPUT_FORMATS = ["wav", "mp3", "flac"];
@@ -205,74 +211,73 @@ function App() {
       </AppHeader>
       <MainContent>
         <StyledForm onSubmit={handleSubmit}>
-          <TwoColumnFormLayout>
-            <div> {/* Column 1 */}
+          <MainAppLayout>
+            <LeftColumn>
               <FileUpload
                 onFileChange={handleFileChange}
                 selectedFile={selectedFile}
                 isLoading={isLoading}
               />
-              {/* Process Audio Button moved to the left column */}
               <Button
                 type="submit"
                 disabled={isLoading || !selectedFile}
-                style={{ marginTop: '20px', width: '100%' }} // Added style for better placement
+                style={{ width: '100%' }} // Ensure button takes full width of left column
               >
                 {isLoading ? 'Processing...' : 'Process Audio'}
               </Button>
-            </div>
-            <div> {/* Column 2 */}
-              <AudioControls
+              <SettingsCard
                 denoiseStrength={denoiseStrength}
                 onDenoiseStrengthChange={(e) => setDenoiseStrength(parseFloat(e.target.value))}
                 outputFormat={outputFormat}
                 onOutputFormatChange={(e) => setOutputFormat(e.target.value)}
                 supportedFormats={SUPPORTED_OUTPUT_FORMATS}
-                // Old EQ props removed
-                eqBands={eqBands} // New dynamic EQ prop
-                onAddEqBand={handleAddEqBand} // New dynamic EQ prop
-                onRemoveEqBand={handleRemoveEqBand} // New dynamic EQ prop
-                onUpdateEqBand={handleUpdateEqBand} // New dynamic EQ prop
                 applyNormalization={applyNormalization}
                 onApplyNormalizationChange={(e) => setApplyNormalization(e.target.checked)}
                 requestWaveform={requestWaveform}
                 onRequestWaveformChange={(e) => setRequestWaveform(e.target.checked)}
                 isLoading={isLoading}
               />
-            </div>
-          </TwoColumnFormLayout>
+            </LeftColumn>
+            <RightColumn>
+              <AudioControls
+                eqBands={eqBands}
+                onAddEqBand={handleAddEqBand}
+                onRemoveEqBand={handleRemoveEqBand}
+                onUpdateEqBand={handleUpdateEqBand}
+                isLoading={isLoading}
+              />
+            </RightColumn>
+          </MainAppLayout>
         </StyledForm>
 
-        {/* {error && ( // This section is now removed
-          <ErrorMessage>
-            <p>Error: {error}</p>
-          </ErrorMessage>
-        )} */}
-
-        {requestWaveform && selectedFile && (
-          <WaveformsSection>
-            <WaveformDisplay
-              data={originalWaveform}
-              title="Original Waveform"
-              audioDuration={audioDuration}
-              // onWaveformClick={handleWaveformSeek} // Or a different handler if original waveform should also seek
+        {processedAudio && (
+          <ResultsSection>
+            <h2>Results</h2>
+            {requestWaveform && selectedFile && (
+              <WaveformsDisplayLayout>
+                <WaveformDisplay
+                  data={originalWaveform}
+                  title="Original Waveform"
+                  audioDuration={audioDuration}
+                  // onWaveformClick={handleWaveformSeek} // Or a different handler if original waveform should also seek
+                />
+                <WaveformDisplay
+                  data={processedWaveform}
+                  title="Processed Waveform"
+                  audioDuration={audioDuration}
+                  onWaveformClick={handleWaveformSeek}
+                />
+              </WaveformsDisplayLayout>
+            )}
+            <AudioPlayer
+              data-testid="audio-player"
+              processedAudio={processedAudio}
+              downloadFilename={downloadFilename}
+              audioRef={audioRef}
+              onLoadedMetadata={handleLoadedMetadata}
             />
-            <WaveformDisplay
-              data={processedWaveform}
-              title="Processed Waveform"
-              audioDuration={audioDuration}
-              onWaveformClick={handleWaveformSeek}
-            />
-          </WaveformsSection>
+          </ResultsSection>
         )}
-
-        <AudioPlayer
-          data-testid="audio-player" // Added for testing
-          processedAudio={processedAudio}
-          downloadFilename={downloadFilename}
-          audioRef={audioRef}
-          onLoadedMetadata={handleLoadedMetadata}
-        />
       </MainContent>
     </AppContainer>
   );
