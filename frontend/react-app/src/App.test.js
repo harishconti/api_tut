@@ -150,11 +150,32 @@ describe('App Component', () => {
         ])
     );
     // Check that other default bands with gain 0 are NOT included.
-    // Default: { id: 'clarity', freq: 2500, gain: 0, q: 1.4, type: 'peaking'... }
-    // Default: { id: 'presence', freq: 5000, gain: 0, q: 2.0, type: 'peaking'... }
-    expect(parsedEqBands.some(band => band.id === 'clarity' || band.freq === 2500)).toBe(false);
-    expect(parsedEqBands.some(band => band.id === 'presence' || band.freq === 5000)).toBe(false);
+    // Default: { id: 'clarity', freq: 2500, gain: 0, q: 1.4, type: 'peaking', enabled: true ... }
+    // Default: { id: 'presence', freq: 5000, gain: 0, q: 2.0, type: 'peaking', enabled: true ... }
+    // These bands have gain 0, so they should not be included in activeEqBands sent to backend.
+    expect(parsedEqBands.find(band => band.freq === 2500)).toBeUndefined();
+    expect(parsedEqBands.find(band => band.freq === 5000)).toBeUndefined();
 
+    // Now, let's test disabling an active band
+    // Disable the 'lowcut' band which we previously made active by setting its gain
+    const enableToggleLowCut = screen.getByTestId('eqEnable-lowcut');
+    await user.click(enableToggleLowCut); // Toggle it off
+
+    // Re-submit
+    await user.click(processButton);
+    expect(api.processAudio).toHaveBeenCalledTimes(2); // Called again
+    const formDataSecondCall = api.processAudio.mock.calls[1][0];
+    const eqBandsJsonSecondCall = formDataSecondCall.get('eq_bands_json');
+    if (eqBandsJsonSecondCall) { // If not null (i.e. some bands are still active and enabled)
+        const parsedEqBandsSecondCall = JSON.parse(eqBandsJsonSecondCall);
+        // The 'lowcut' band should now be missing because it's disabled
+        expect(parsedEqBandsSecondCall.find(band => band.freq === 100)).toBeUndefined();
+    } else {
+        // If all bands become effectively inactive (e.g. no other bands had gain changes)
+        // then eq_bands_json might be null, which is also correct.
+        // This depends on the initial state of other bands. For this test, it's fine if it's null
+        // as we only explicitly activated and then disabled one.
+    }
 
     await waitFor(() => {
       expect(screen.getByText('Original Waveform')).toBeInTheDocument();
