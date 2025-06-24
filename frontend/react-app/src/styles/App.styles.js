@@ -94,65 +94,7 @@ export const Button = styled.button`
 
 // More specific layout components that may use the general ones above
 
-export const EffectsToolsSection = styled(SettingsCardContainer)`
-  h3 {
-    margin-top: 0;
-    margin-bottom: 15px;
-    color: #333;
-    font-size: 1.2rem;
-    border-bottom: 1px solid #ccc;
-    padding-bottom: 10px;
-  }
-`;
-
-export const EffectButtonRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px; /* Space between buttons */
-  margin-bottom: 10px; /* Space below the row of buttons */
-`;
-
-export const EffectToggleButton = styled(Button)`
-  margin: 0; /* Gap on parent (EffectButtonRow) handles spacing */
-  background-color: ${props => props.active ? '#0056b3' : '#6c757d'}; // Darker blue if active, grey otherwise
-  flex: 1 1 auto; /* Allow buttons to grow and shrink, maintaining some base size via padding */
-  min-width: 120px; /* Example: ensure buttons don't get too small */
-
-  &:hover {
-    background-color: ${props => props.active ? '#004085' : '#5a6268'};
-  }
-  /* Width properties removed, handled by flex container */
-`;
-
-
-export const EQBandControlsGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); /* Responsive grid */
-  gap: 15px; /* Gap between controls */
-  align-items: end; /* Align items to the bottom of their grid cell, useful for labels above inputs */
-
-  /* If you want to specifically target FormGroup within this grid for layout adjustments */
-  & > ${FormGroup} {
-    margin-bottom: 0; /* Remove default bottom margin from FormGroup if it's too much in grid */
-    display: flex; /* Allow label and input to be stacked if needed */
-    flex-direction: column;
-    justify-content: flex-end; /* Aligns content to bottom, useful if heights vary */
-  }
-
-   /* Adjust label styling if necessary for grid layout */
-  label {
-    font-size: 0.9em; /* Slightly smaller labels for compact layout */
-    margin-bottom: 4px; /* Reduced space between label and input */
-  }
-
-  input[type="number"],
-  input[type="range"],
-  select {
-    padding: 8px; /* Slightly reduced padding for compactness */
-    font-size: 0.9em;
-  }
-`;
-
+// First, define general layout structure/container components
 export const MainContent = styled.main`
   background-color: #ffffff; /* White background for content area */
   padding: 30px;
@@ -222,7 +164,6 @@ export const SettingsCardContainer = styled.div`
   }
 `;
 
-
 export const ResultsSection = styled.div`
   margin-top: 30px;
   padding: 20px;
@@ -251,21 +192,10 @@ export const WaveformsDisplayLayout = styled.div`
   }
 `;
 
-
 export const ControlGroupWrapper = styled.div`
   /* This can be used to group controls if needed, for now, it's a simple div */
   /* If we need columns within AudioControls, we'd add flex properties here */
 `;
-
-// export const ErrorMessage = styled.div` // Commented out as it's replaced by react-toastify
-//   color: #D8000C;
-//   background-color: #FFD2D2;
-//   border: 1px solid #D8000C;
-//   padding: 15px;
-//   margin-top: 20px;
-//   border-radius: 4px;
-//   text-align: left;
-// `;
 
 export const WaveformsSection = styled.div`
   display: flex;
@@ -273,6 +203,66 @@ export const WaveformsSection = styled.div`
   margin-top: 30px;
   gap: 20px;
   flex-wrap: wrap;
+`;
+
+
+// Then, define components that might use/extend the above
+export const EffectsToolsSection = styled(SettingsCardContainer)`
+  h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 1.2rem;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 10px;
+  }
+`;
+
+export const EffectButtonRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px; /* Space between buttons */
+  margin-bottom: 10px; /* Space below the row of buttons */
+`;
+
+export const EffectToggleButton = styled(Button)`
+  margin: 0; /* Gap on parent (EffectButtonRow) handles spacing */
+  background-color: ${props => props.active ? '#0056b3' : '#6c757d'}; // Darker blue if active, grey otherwise
+  flex: 1 1 auto; /* Allow buttons to grow and shrink, maintaining some base size via padding */
+  min-width: 120px; /* Example: ensure buttons don't get too small */
+
+  &:hover {
+    background-color: ${props => props.active ? '#004085' : '#5a6268'};
+  }
+  /* Width properties removed, handled by flex container */
+`;
+
+export const EQBandControlsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); /* Responsive grid */
+  gap: 15px; /* Gap between controls */
+  align-items: end; /* Align items to the bottom of their grid cell, useful for labels above inputs */
+
+  /* If you want to specifically target FormGroup within this grid for layout adjustments */
+  & > ${FormGroup} {
+    margin-bottom: 0; /* Remove default bottom margin from FormGroup if it's too much in grid */
+    display: flex; /* Allow label and input to be stacked if needed */
+    flex-direction: column;
+    justify-content: flex-end; /* Aligns content to bottom, useful if heights vary */
+  }
+
+   /* Adjust label styling if necessary for grid layout */
+  label {
+    font-size: 0.9em; /* Slightly smaller labels for compact layout */
+    margin-bottom: 4px; /* Reduced space between label and input */
+  }
+
+  input[type="number"],
+  input[type="range"],
+  select {
+    padding: 8px; /* Slightly reduced padding for compactness */
+    font-size: 0.9em;
+  }
 `;
 
 // Specific component styles - can be moved to their own files if they grow
