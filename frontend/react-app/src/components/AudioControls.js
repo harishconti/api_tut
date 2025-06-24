@@ -120,7 +120,12 @@ const AudioControls = ({
                 <EQBandHeader>
                   {band.name || `Band ID: ${band.id}`}
                   {band.removable && (
-                    <SmallButton type="button" onClick={() => onRemoveEqBand(band.id)} disabled={isLoading}>
+                    <SmallButton
+                      type="button"
+                      onClick={() => onRemoveEqBand(band.id)}
+                      disabled={isLoading}
+                      data-testid={`remove-eq-${band.id}`}
+                    >
                       Remove
                     </SmallButton>
                   )}
@@ -130,6 +135,7 @@ const AudioControls = ({
                   <input
                     type="number" // Using number for more direct input, could be range
                     id={`eqFreq-${band.id}`}
+                    data-testid={`eqFreq-${band.id}`}
                     min="20"
                     max="20000"
                     step="1"
@@ -143,6 +149,7 @@ const AudioControls = ({
                   <input
                     type="range"
                     id={`eqGain-${band.id}`}
+                    data-testid={`eqGain-${band.id}`}
                     min={gainAttrs.min}
                     max={gainAttrs.max}
                     step={gainAttrs.step}
@@ -156,6 +163,7 @@ const AudioControls = ({
                   <input
                     type="range"
                     id={`eqQ-${band.id}`}
+                    data-testid={`eqQ-${band.id}`}
                     min="0.1"
                     max="10"
                     step="0.1"
@@ -168,6 +176,7 @@ const AudioControls = ({
                   <label htmlFor={`eqType-${band.id}`}>Type:</label>
                   <select
                     id={`eqType-${band.id}`}
+                    data-testid={`eqType-${band.id}`}
                     value={band.type}
                     onChange={(e) => handleBandChange(band.id, 'type', e.target.value)}
                     disabled={isLoading || !band.editable}

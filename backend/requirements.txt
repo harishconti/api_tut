@@ -35,7 +35,5 @@ noisereduce
 librosa
 scipy
 soundfile
-cloud-sql-python-connector
-pandas
 pydub
 pyloudnorm

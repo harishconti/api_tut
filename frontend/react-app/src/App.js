@@ -261,6 +261,7 @@ function App() {
         )}
 
         <AudioPlayer
+          data-testid="audio-player" // Added for testing
           processedAudio={processedAudio}
           downloadFilename={downloadFilename}
           audioRef={audioRef}

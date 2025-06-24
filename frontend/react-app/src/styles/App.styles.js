@@ -204,7 +204,6 @@ export const StyledWaveformContainer = styled.div`
     background-color: #f7f9fa; /* Light background for canvas itself */
   }
 `;
-`;
 /*
   Note: Some styles like `.form-group`, `button` details, `error-message` etc. were in GlobalStyle.
   If we want more specific versions for App components, we define them here.
