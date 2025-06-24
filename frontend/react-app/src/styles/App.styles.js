@@ -94,6 +94,31 @@ export const Button = styled.button`
 
 // More specific layout components that may use the general ones above
 
+export const EffectsToolsSection = styled(SettingsCardContainer)`
+  h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 1.2rem;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 10px;
+  }
+`;
+
+export const EffectToggleButton = styled(Button)`
+  margin: 5px;
+  background-color: ${props => props.active ? '#0056b3' : '#6c757d'}; // Darker blue if active, grey otherwise
+  &:hover {
+    background-color: ${props => props.active ? '#004085' : '#5a6268'};
+  }
+  width: calc(50% - 10px); /* Two buttons per row roughly */
+
+  @media (min-width: 500px) { /* Adjust breakpoint as needed */
+    width: calc(33.333% - 10px); /* Three buttons per row */
+  }
+`;
+
+
 export const EQBandControlsGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); /* Responsive grid */
@@ -169,6 +194,9 @@ export const LeftColumn = styled.div`
 
 export const RightColumn = styled.div`
   flex: 2; /* Adjust flex basis as needed */
+  display: flex;
+  flex-direction: column;
+  gap: 20px; /* Adds space between stacked effect modules */
 `;
 
 export const SettingsCardContainer = styled.div`
