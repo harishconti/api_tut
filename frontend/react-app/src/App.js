@@ -23,9 +23,10 @@ import {
   RightColumn,
   ResultsSection,
   WaveformsDisplayLayout,
-  EffectsToolsSection, // Added
-  EffectToggleButton, // Added
-  FormGroup // Added
+  EffectsToolsSection,
+  EffectToggleButton,
+  EffectButtonRow, // Added
+  FormGroup
 } from './styles/App.styles';
 
 const SUPPORTED_OUTPUT_FORMATS = ["wav", "mp3", "flac"];
@@ -277,7 +278,7 @@ function App() {
               />
               <EffectsToolsSection>
                 <h3>Effects & Tools</h3>
-                <div>
+                <EffectButtonRow>
                   <EffectToggleButton
                     type="button"
                     active={showEQ}
@@ -302,7 +303,7 @@ function App() {
                   >
                     Reverb
                   </EffectToggleButton>
-                </div>
+                </EffectButtonRow>
                 <FormGroup style={{ marginTop: '20px' }}> {/* Using FormGroup for consistent styling of checkbox label */}
                   <label htmlFor="trimSilence">
                     <input
