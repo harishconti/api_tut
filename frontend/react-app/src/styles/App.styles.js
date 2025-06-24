@@ -105,17 +105,23 @@ export const EffectsToolsSection = styled(SettingsCardContainer)`
   }
 `;
 
+export const EffectButtonRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px; /* Space between buttons */
+  margin-bottom: 10px; /* Space below the row of buttons */
+`;
+
 export const EffectToggleButton = styled(Button)`
-  margin: 5px;
+  margin: 0; /* Gap on parent (EffectButtonRow) handles spacing */
   background-color: ${props => props.active ? '#0056b3' : '#6c757d'}; // Darker blue if active, grey otherwise
+  flex: 1 1 auto; /* Allow buttons to grow and shrink, maintaining some base size via padding */
+  min-width: 120px; /* Example: ensure buttons don't get too small */
+
   &:hover {
     background-color: ${props => props.active ? '#004085' : '#5a6268'};
   }
-  width: calc(50% - 10px); /* Two buttons per row roughly */
-
-  @media (min-width: 500px) { /* Adjust breakpoint as needed */
-    width: calc(33.333% - 10px); /* Three buttons per row */
-  }
+  /* Width properties removed, handled by flex container */
 `;
 
 
